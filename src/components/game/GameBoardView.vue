@@ -77,9 +77,9 @@ const handleAction = (action) => {
 
 <style scoped>
 .game-stage {
-  width: 1024px;
+  width: 1332px;
   max-width: 100%;
-  height: 768px;
+  height: 999px;
   position: relative;
   border-radius: 1rem;
   overflow: hidden;
