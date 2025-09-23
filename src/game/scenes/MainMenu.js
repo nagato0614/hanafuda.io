@@ -13,7 +13,7 @@ export class MainMenu extends Scene
 
     create ()
     {
-        this.add.image(512, 384, 'background');
+        this.cameras.main.setBackgroundColor(0xcbe9ff);
 
         this.logo = this.add.image(512, 300, 'logo').setDepth(100);
 
