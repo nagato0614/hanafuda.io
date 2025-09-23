@@ -15,36 +15,29 @@ const trigger = (action) => {
 
 <template>
   <div class="card-koikoi p-3 h-100 d-flex flex-column gap-3">
-    <div>
-      <h3 class="fs-6 mb-3">操作</h3>
-      <div class="d-grid gap-2">
-        <button
-          v-for="action in actions.primary"
-          :key="action.key"
-          type="button"
-          class="btn btn-lg"
-          :class="`btn-${action.variant ?? 'primary'}`"
-          :disabled="action.disabled"
-          @click="trigger(action)"
-        >
-          {{ action.label }}
-        </button>
-      </div>
-    </div>
-    <div>
-      <div class="d-grid gap-2">
-        <button
-          v-for="action in actions.secondary"
-          :key="action.key"
-          type="button"
-          class="btn"
-          :class="`btn-outline-${action.variant ?? 'secondary'}`"
-          :disabled="action.disabled"
-          @click="trigger(action)"
-        >
-          {{ action.label }}
-        </button>
-      </div>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <button
+        v-for="action in actions.primary"
+        :key="action.key"
+        type="button"
+        class="btn"
+        :class="`btn-${action.variant ?? 'primary'} btn-lg`"
+        :disabled="action.disabled"
+        @click="trigger(action)"
+      >
+        {{ action.label }}
+      </button>
+      <button
+        v-for="action in actions.secondary"
+        :key="action.key"
+        type="button"
+        class="btn"
+        :class="`btn-outline-${action.variant ?? 'secondary'}`"
+        :disabled="action.disabled"
+        @click="trigger(action)"
+      >
+        {{ action.label }}
+      </button>
     </div>
     <div class="logs card-koikoi flex-grow-1 overflow-auto p-3">
       <h4 class="fs-6 mb-2">ログ</h4>

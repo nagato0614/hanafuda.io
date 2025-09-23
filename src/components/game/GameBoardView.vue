@@ -35,37 +35,35 @@ const handleAction = (action) => {
       <div class="ui-layer d-flex flex-column gap-3 p-3">
         <StatusBar :status="state.status" :players="[state.opponent, state.player]" />
 
-        <div class="d-flex flex-grow-1 gap-3">
-          <div class="side-panel">
-            <CapturedArea
-              :owner="state.opponent.name"
-              :categories="state.opponent.captured"
-            />
-          </div>
+        <div class="board-center flex-grow-1">
+          <CapturedArea
+            class="captured-column"
+            :owner="state.player.name"
+            :categories="state.player.captured"
+          />
 
-          <div class="flex-grow-1 d-flex flex-column gap-3">
-            <FieldArea :field="state.field" class="flex-grow-1" />
-          </div>
+          <FieldArea :field="state.field" class="board-field flex-grow-1" />
 
-          <div class="side-panel">
-            <ActionPanel :actions="state.actions" @action="handleAction" />
-          </div>
+          <CapturedArea
+            class="captured-column"
+            :owner="state.opponent.name"
+            :categories="state.opponent.captured"
+          />
         </div>
 
-        <div class="d-flex gap-3">
+        <div class="bottom-stack">
           <HandArea
-            class="flex-grow-1"
+            class="hand-panel"
             :cards="state.player.hand"
             :title="`${state.player.name} の手札`"
             :selected-card-id="state.player.selectedCardId"
             @select-card="handleSelectCard"
           />
-        </div>
 
-        <div>
-          <CapturedArea
-            :owner="state.player.name"
-            :categories="state.player.captured"
+          <ActionPanel
+            class="action-panel"
+            :actions="state.actions"
+            @action="handleAction"
           />
         </div>
       </div>
@@ -96,10 +94,32 @@ const handleAction = (action) => {
   height: 100%;
 }
 
-.side-panel {
-  flex: 0 0 240px;
+.board-center {
+  display: grid;
+  grid-template-columns: 280px 1fr 280px;
+  gap: 1.5rem;
+}
+
+.captured-column {
+  height: 100%;
+}
+
+.board-field {
+  min-height: 0;
+}
+
+.bottom-stack {
   display: flex;
   flex-direction: column;
+  gap: 1.25rem;
+}
+
+.hand-panel {
+  flex: 1;
+}
+
+.action-panel {
+  flex: 1;
 }
 
 .container-fluid {
