@@ -3,7 +3,6 @@ import ActionPanel from './ActionPanel.vue';
 import CapturedArea from './CapturedArea.vue';
 import FieldArea from './FieldArea.vue';
 import HandArea from './HandArea.vue';
-import ScoreSummary from './ScoreSummary.vue';
 import StatusBar from './StatusBar.vue';
 import PhaserGame from '../../PhaserGame.vue';
 
@@ -34,7 +33,7 @@ const handleAction = (action) => {
     <div class="game-stage mx-auto">
       <PhaserGame class="phaser-layer" @current-active-scene="handleSceneReady" />
       <div class="ui-layer d-flex flex-column gap-3 p-3">
-        <StatusBar :status="state.status" />
+        <StatusBar :status="state.status" :players="[state.opponent, state.player]" />
 
         <div class="d-flex flex-grow-1 gap-3">
           <div class="side-panel">
@@ -46,7 +45,6 @@ const handleAction = (action) => {
 
           <div class="flex-grow-1 d-flex flex-column gap-3">
             <FieldArea :field="state.field" class="flex-grow-1" />
-            <ScoreSummary :players="[state.opponent, state.player]" />
           </div>
 
           <div class="side-panel">

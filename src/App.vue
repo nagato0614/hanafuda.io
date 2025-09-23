@@ -46,6 +46,7 @@ const state = reactive({
   opponent: {
     id: 'cpu',
     name: 'CPU 花子',
+    roleLabel: 'CPU',
     capturedTotal: 12,
     roundScore: 7,
     totalScore: 38,
@@ -70,6 +71,7 @@ const state = reactive({
   player: {
     id: 'player',
     name: 'プレイヤー',
+    roleLabel: 'あなた',
     capturedTotal: 9,
     roundScore: 5,
     totalScore: 45,
