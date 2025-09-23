@@ -98,6 +98,8 @@ const handleAction = (action) => {
   display: grid;
   grid-template-columns: 280px 1fr 280px;
   gap: 1.5rem;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .captured-column {
@@ -112,14 +114,15 @@ const handleAction = (action) => {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  flex: 0 0 auto;
 }
 
 .hand-panel {
-  flex: 1;
+  flex: 0 0 auto;
 }
 
 .action-panel {
-  flex: 1;
+  flex: 0 0 auto;
 }
 
 .container-fluid {

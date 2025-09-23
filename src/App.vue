@@ -143,10 +143,6 @@ const pushLog = (message) => {
     time: new Date().toLocaleTimeString('ja-JP', { hour12: false }).slice(0, 5),
     message
   });
-
-  if (state.actions.logs.length > 8) {
-    state.actions.logs.pop();
-  }
 };
 
 const handleSceneReady = (scene) => {
@@ -184,7 +180,6 @@ const handleAction = (action) => {
       state.status.koikoiLevel += 1;
       break;
     case 'view-rules':
-      pushLog('ルール表示（モック）。');
       break;
     case 'end-turn':
       pushLog('ターンを終了しました（モック）。');

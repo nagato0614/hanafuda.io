@@ -24,7 +24,7 @@ const handleSelect = (card) => {
 </script>
 
 <template>
-  <div class="card-koikoi p-3 h-100 d-flex flex-column">
+  <div class="card-koikoi p-3 d-flex flex-column">
     <div class="d-flex justify-content-between align-items-center mb-2">
       <h3 class="fs-5 mb-0">{{ title }}</h3>
       <span class="badge text-bg-secondary">{{ cards.length }} 枚</span>
