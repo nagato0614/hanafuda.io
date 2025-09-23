@@ -44,7 +44,7 @@ const sizeClass = computed(() => sizeClassMap[props.size] ?? sizeClassMap.md);
       class="img-fluid rounded-4"
       loading="lazy"
     >
-    <div class="card-token-label badge text-bg-dark position-absolute top-0 start-50 translate-middle">
+    <div class="card-token-label badge text-bg-dark">
       {{ card.shortLabel ?? card.name }}
     </div>
   </div>
@@ -80,5 +80,15 @@ const sizeClass = computed(() => sizeClassMap[props.size] ?? sizeClassMap.md);
 .card-token-label {
   font-size: 0.6rem;
   letter-spacing: 0.05em;
+  position: absolute;
+  bottom: 6px;
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: fit-content;
+  max-width: 90%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
