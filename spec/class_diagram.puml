@@ -1,0 +1,118 @@
+@startuml DomainModel
+skinparam backgroundColor #ffffff
+skinparam shadowing false
+skinparam class {
+  BackgroundColor #fdfdff
+  BorderColor #555555
+  ArrowColor #555555
+}
+
+class GameService {
+  +startMatch(config: RuleConfig)
+  +startRound(month: number)
+  +playCard(playerId: string, cardId: string)
+  +resolveKoikoi(choice: KoikoiChoice)
+}
+
+class MatchState {
+  +monthIndex: number
+  +rounds: RoundState[]
+  +totalScores: Map<string, number>
+  +isFinished(): boolean
+  +advanceRound(): void
+}
+
+class RoundState {
+  +currentPlayerId: string
+  +phase: RoundPhase
+  +history: GameEvent[]
+  +applyMove(move: Move): RoundState
+  +availableMoves(playerId: string): Move[]
+}
+
+class Field {
+  +slots: Map<Month, CardBase[]>
+  +placeCard(card: CardBase): void
+  +collect(month: Month, selected: CardBase): CardBase[]
+}
+
+class Player {
+  +id: string
+  +name: string
+  +hand: CardBase[]
+  +captured: CardBase[]
+  +koikoiCount: number
+  +playCard(cardId: string): CardBase
+}
+
+class Deck {
+  +cards: CardBase[]
+  +seed: number
+  +shuffle(): void
+  +draw(): CardBase
+}
+
+abstract class CardBase {
+  +id: string
+  +month: Month
+  +name: string
+  +category: CardCategory
+  +points: number
+  +isSpecial: boolean
+  +tags: string[]
+  +clone(): CardBase
+}
+
+class PineCraneCard
+class PlumWarblerCard
+class CherryCurtainCard
+
+class YakuEvaluator {
+  +ruleSet: RuleConfig
+  +evaluate(captured: CardBase[]): YakuResult[]
+}
+
+class ScoreCalculator {
+  +ruleSet: RuleConfig
+  +calculate(results: YakuResult[], koikoiLevel: number): number
+}
+
+class RuleConfig {
+  +yakuTable: YakuDefinition[]
+  +koikoiMultipliers: number[]
+  +specialRules: SpecialRule[]
+}
+
+class MatchCoordinator {
+  +distributeInitialCards(): void
+  +determineFirstPlayer(): string
+  +nextPlayer(current: string): string
+}
+
+class Logger {
+  +log(event: GameEvent): void
+  +export(): GameEvent[]
+}
+
+GameService --> MatchState : manages
+GameService --> YakuEvaluator : uses
+GameService --> ScoreCalculator : uses
+GameService --> MatchCoordinator : orchestrates
+GameService --> Logger : emits
+MatchState --> RoundState : aggregates
+RoundState --> Field : owns
+RoundState --> Player : tracks
+RoundState --> Deck : draws
+Player --> CardBase : maintains hand
+Field --> CardBase : manages
+Deck --> CardBase : supplies
+YakuEvaluator --> RuleConfig : reads
+ScoreCalculator --> RuleConfig : reads
+MatchCoordinator --> Deck : shuffles
+Logger --> GameEvent : stores
+
+CardBase <|-- PineCraneCard
+CardBase <|-- PlumWarblerCard
+CardBase <|-- CherryCurtainCard
+
+@enduml
