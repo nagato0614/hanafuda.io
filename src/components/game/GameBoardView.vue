@@ -1,19 +1,25 @@
 <script setup>
+import { computed } from 'vue';
 import ActionPanel from './ActionPanel.vue';
 import CapturedArea from './CapturedArea.vue';
 import FieldArea from './FieldArea.vue';
 import HandArea from './HandArea.vue';
 import StatusBar from './StatusBar.vue';
 import PhaserGame from '../../PhaserGame.vue';
+import MainMenuOverlay from '../menu/MainMenuOverlay.vue';
 
 const props = defineProps({
   state: {
     type: Object,
     required: true
+  },
+  sceneKey: {
+    type: String,
+    default: ''
   }
 });
 
-const emits = defineEmits(['scene-ready', 'select-card', 'action']);
+const emits = defineEmits(['scene-ready', 'select-card', 'action', 'start-game']);
 
 const handleSceneReady = (scene) => {
   emits('scene-ready', scene);
@@ -26,46 +32,59 @@ const handleSelectCard = (card) => {
 const handleAction = (action) => {
   emits('action', action);
 };
+
+const handleStartGame = () => {
+  emits('start-game');
+};
+
+const isGameScene = computed(() => props.sceneKey === 'Game');
 </script>
 
 <template>
   <div class="game-board container-fluid py-4">
     <div class="game-stage mx-auto">
       <PhaserGame class="phaser-layer" @current-active-scene="handleSceneReady" />
-      <div class="ui-layer d-flex flex-column gap-3 p-3">
-        <StatusBar :status="state.status" :players="[state.opponent, state.player]" />
+      <div class="ui-layer p-3">
+        <template v-if="isGameScene">
+          <div class="game-ui d-flex flex-column gap-3 h-100">
+            <StatusBar :status="state.status" :players="[state.opponent, state.player]" />
 
-        <div class="board-center flex-grow-1">
-          <CapturedArea
-            class="captured-column"
-            :owner="state.player.name"
-            :categories="state.player.captured"
-          />
+            <div class="board-center flex-grow-1">
+              <CapturedArea
+                class="captured-column"
+                :owner="state.player.name"
+                :categories="state.player.captured"
+              />
 
-          <FieldArea :field="state.field" class="board-field flex-grow-1" />
+              <FieldArea :field="state.field" class="board-field flex-grow-1" />
 
-          <CapturedArea
-            class="captured-column"
-            :owner="state.opponent.name"
-            :categories="state.opponent.captured"
-          />
-        </div>
+              <CapturedArea
+                class="captured-column"
+                :owner="state.opponent.name"
+                :categories="state.opponent.captured"
+              />
+            </div>
 
-        <div class="bottom-stack">
-          <HandArea
-            class="hand-panel"
-            :cards="state.player.hand"
-            :title="`${state.player.name} の手札`"
-            :selected-card-id="state.player.selectedCardId"
-            @select-card="handleSelectCard"
-          />
+            <div class="bottom-stack">
+              <HandArea
+                class="hand-panel"
+                :cards="state.player.hand"
+                :title="`${state.player.name} の手札`"
+                :selected-card-id="state.player.selectedCardId"
+                @select-card="handleSelectCard"
+              />
 
-          <ActionPanel
-            class="action-panel"
-            :actions="state.actions"
-            @action="handleAction"
-          />
-        </div>
+              <ActionPanel
+                class="action-panel"
+                :actions="state.actions"
+                @action="handleAction"
+              />
+            </div>
+          </div>
+        </template>
+        <template v-else-if="sceneKey === 'MainMenu'">
+          <MainMenuOverlay @start="handleStartGame" />
+        </template>
       </div>
     </div>
   </div>
@@ -91,6 +110,10 @@ const handleAction = (action) => {
 .ui-layer {
   position: relative;
   z-index: 1;
+  height: 100%;
+}
+
+.game-ui {
   height: 100%;
 }
 
@@ -123,6 +146,10 @@ const handleAction = (action) => {
 
 .action-panel {
   flex: 0 0 auto;
+}
+
+.menu-overlay {
+  height: 100%;
 }
 
 .container-fluid {

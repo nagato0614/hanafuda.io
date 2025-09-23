@@ -136,6 +136,7 @@ const state = reactive({
 });
 
 const activeScene = ref(null);
+const activeSceneKey = ref('');
 
 const pushLog = (message) => {
   state.actions.logs.unshift({
@@ -147,6 +148,7 @@ const pushLog = (message) => {
 
 const handleSceneReady = (scene) => {
   activeScene.value = scene;
+  activeSceneKey.value = scene?.scene?.key ?? '';
 };
 
 const handleSelectCard = (card) => {
@@ -189,6 +191,12 @@ const handleAction = (action) => {
       pushLog(`${action.label} をクリックしました。`);
   }
 };
+
+const handleStartGame = () => {
+  if (activeScene.value && typeof activeScene.value.changeScene === 'function') {
+    activeScene.value.changeScene();
+  }
+};
 </script>
 
 <template>
@@ -197,5 +205,7 @@ const handleAction = (action) => {
     @scene-ready="handleSceneReady"
     @select-card="handleSelectCard"
     @action="handleAction"
+    @start-game="handleStartGame"
+    :scene-key="activeSceneKey"
   />
 </template>
