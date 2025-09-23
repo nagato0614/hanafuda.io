@@ -6,25 +6,20 @@ export class MainMenu extends Scene
     constructor ()
     {
         super('MainMenu');
-        // JSではプロパティをconstructor内で初期化
-        this.logoTween = null;
-        this.logo = null;
     }
 
     create ()
     {
         this.cameras.main.setBackgroundColor(0xcbe9ff);
 
-        this.logo = this.add.image(512, 300, 'logo').setDepth(100);
-
-        this.add.text(512, 460, 'Main Menu', {
+        this.add.text(512, 460, '花札こいこい', {
             fontFamily: 'Arial Black', fontSize: 38, color: '#ffffff',
             stroke: '#000000', strokeThickness: 8,
             align: 'center'
         }).setDepth(100).setOrigin(0.5);
 
         // 何もしないボタン
-        const noopButton = this.add.text(512, 540, '何もしないボタン', {
+        const noopButton = this.add.text(512, 540, '対局を始める', {
             fontFamily: 'Arial', fontSize: '28px', color: '#ffffff',
             backgroundColor: '#1e40af',
             padding: { x: 16, y: 10 }
@@ -50,42 +45,11 @@ export class MainMenu extends Scene
 
     changeScene ()
     {
-        if (this.logoTween)
-        {
-            this.logoTween.stop();
-            this.logoTween = null;
-        }
         this.scene.start('Game');
     }
 
     moveLogo (vueCallback)
     {
-        if (this.logoTween)
-        {
-            if (this.logoTween.isPlaying())
-            {
-                this.logoTween.pause();
-            }
-            else
-            {
-                this.logoTween.play();
-            }
-        }
-        else
-        {
-            this.logoTween = this.tweens.add({
-                targets: this.logo,
-                x: { value: 750, duration: 3000, ease: 'Back.easeInOut' },
-                y: { value: 80, duration: 1500, ease: 'Sine.easeOut' },
-                yoyo: true,
-                repeat: -1,
-                onUpdate: () => {
-                    vueCallback({
-                        x: Math.floor(this.logo.x),
-                        y: Math.floor(this.logo.y)
-                    });
-                }
-            });
-        }
+        vueCallback({ x: 512, y: 300 });
     }
 }

@@ -144,7 +144,7 @@ Vite supports loading assets via JavaScript module `import` statements.
 This template provides support for both embedding assets and also loading them from a static folder. To embed an asset, you can import it at the top of the JavaScript file you are using it in:
 
 ```js
-import logoImg from './assets/logo.png'
+import pineBrightImg from './assets/hanafuda/01-pine-bright.png'
 ```
 
 To load static files such as audio files, videos, etc place them into the `public/assets` folder. Then you can use this path in the Loader calls within Phaser:
@@ -154,11 +154,11 @@ preload ()
 {
     //  This is an example of an imported bundled image.
     //  Remember to import it at the top of this file
-    this.load.image('logo', logoImg);
+    this.load.image('pineBright', pineBrightImg);
 
     //  This is an example of loading a static image
     //  from the public/assets folder:
-    this.load.image('star', 'assets/star.png');
+    this.load.image('pineBright', 'assets/hanafuda/01-pine-bright.png');
 }
 ```
 
@@ -220,21 +220,10 @@ After:
 },
 ```
 
-Either of these will stop `log.js` from running. If you do decide to do this, please could you at least join our Discord and tell us which template you're using! Or send us a quick email. Either will be super-helpful, thank you.
+Either of these will stop `log.js` from running.
 
-## Join the Phaser Community!
+## License
 
-We love to see what developers like you create with Phaser! It really motivates us to keep improving. So please join our community and show-off your work 😄
+This project is released under the [MIT License](./LICENSE).
 
-**Visit:** The [Phaser website](https://phaser.io) and follow on [Phaser Twitter](https://twitter.com/phaser_)<br />
-**Play:** Some of the amazing games [#madewithphaser](https://twitter.com/search?q=%23madewithphaser&src=typed_query&f=live)<br />
-**Learn:** [API Docs](https://newdocs.phaser.io), [Support Forum](https://phaser.discourse.group/) and [StackOverflow](https://stackoverflow.com/questions/tagged/phaser-framework)<br />
-**Discord:** Join us on [Discord](https://discord.gg/phaser)<br />
-**Code:** 2000+ [Examples](https://labs.phaser.io)<br />
-**Read:** The [Phaser World](https://phaser.io/community/newsletter) Newsletter<br />
-
-Created by [Phaser Studio](mailto:support@phaser.io). Powered by coffee, anime, pixels and love.
-
-The Phaser logo and characters are &copy; 2011 - 2025 Phaser Studio Inc.
-
-All rights reserved.
+&copy; 2025 Toru

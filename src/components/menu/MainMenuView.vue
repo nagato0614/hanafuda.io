@@ -10,7 +10,6 @@ const handleStart = () => {
   <div class="menu-wrapper d-flex align-items-center justify-content-center py-5">
     <div class="card-koikoi p-5 w-100" style="max-width: 720px;">
       <div class="text-center mb-4">
-        <img src="/assets/logo.png" alt="Hanafuda" class="img-fluid" style="max-height: 120px;">
         <h1 class="fw-bold mt-3">花札こいこい</h1>
         <p class="text-muted">Vue + Phaser で遊ぶデジタル花札</p>
       </div>
