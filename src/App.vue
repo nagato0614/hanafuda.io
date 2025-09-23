@@ -33,6 +33,8 @@ const catalog = {
   paulowniaChaff: createCard('12-chaff-a', '桐のカス一', '12-paulownia-chaff-1.png', '桐カス')
 };
 
+const cloneCard = (card) => ({ ...card });
+
 const state = reactive({
   status: {
     monthLabel: '3月（桜）',
@@ -103,37 +105,15 @@ const state = reactive({
   field: {
     drawPile: 18,
     discard: [catalog.pineChaff],
-    slots: [
-      {
-        month: 1,
-        label: '1月 松',
-        cards: [catalog.pineRibbon, catalog.pineChaff]
-      },
-      {
-        month: 2,
-        label: '2月 梅',
-        cards: [catalog.plumAnimal]
-      },
-      {
-        month: 3,
-        label: '3月 桜',
-        cards: [catalog.cherryRibbon]
-      },
-      {
-        month: 4,
-        label: '4月 藤',
-        cards: [catalog.wisteriaAnimal]
-      },
-      {
-        month: 7,
-        label: '7月 萩',
-        cards: [catalog.bushRibbon]
-      },
-      {
-        month: 8,
-        label: '8月 芒',
-        cards: [catalog.pampasAnimal]
-      }
+    cards: [
+      cloneCard(catalog.pineRibbon),
+      cloneCard(catalog.plumAnimal),
+      cloneCard(catalog.cherryRibbon),
+      cloneCard(catalog.wisteriaAnimal),
+      cloneCard(catalog.irisAnimal),
+      cloneCard(catalog.peonyRibbon),
+      cloneCard(catalog.bushRibbon),
+      cloneCard(catalog.pampasAnimal)
     ]
   },
   actions: {

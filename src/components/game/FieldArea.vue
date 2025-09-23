@@ -5,11 +5,26 @@ import CardToken from './CardToken.vue';
 const props = defineProps({
   field: {
     type: Object,
-    default: () => ({ slots: [], drawPile: 0, discard: [] })
+    default: () => ({ cards: [], drawPile: 0, discard: [] })
   }
 });
 
-const slots = computed(() => props.field.slots ?? []);
+const TOTAL_SLOTS = 8;
+
+const gridCards = computed(() => {
+  const cards = props.field.cards ?? [];
+
+  if (cards.length >= TOTAL_SLOTS) {
+    return cards.slice(0, TOTAL_SLOTS);
+  }
+
+  const placeholders = Array.from({ length: TOTAL_SLOTS - cards.length }, (_, index) => ({
+    id: `empty-slot-${index}`,
+    empty: true
+  }));
+
+  return [...cards, ...placeholders];
+});
 </script>
 
 <template>
@@ -24,22 +39,18 @@ const slots = computed(() => props.field.slots ?? []);
         <div class="badge text-bg-secondary" v-if="field.discard?.length">捨て札 {{ field.discard.length }} 枚</div>
       </div>
     </div>
-    <div class="row row-cols-3 g-3">
-      <div class="col" v-for="slot in slots" :key="slot.month">
-        <div class="bg-white rounded-4 p-2 shadow-sm h-100">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <span class="fw-semibold">{{ slot.label }}</span>
-            <span class="badge text-bg-light text-dark">{{ slot.cards.length }} 枚</span>
-          </div>
-          <div class="d-flex flex-wrap gap-2">
-            <CardToken
-              v-for="card in slot.cards"
-              :key="card.id"
-              :card="card"
-              size="sm"
-            />
-          </div>
-        </div>
+    <div class="field-grid">
+      <div
+        v-for="(item, index) in gridCards"
+        :key="item.id ?? `slot-${index}`"
+        class="field-slot d-flex align-items-center justify-content-center"
+      >
+        <CardToken
+          v-if="!item.empty"
+          :card="item"
+          size="md"
+        />
+        <div v-else class="field-empty">&nbsp;</div>
       </div>
     </div>
   </div>
@@ -49,5 +60,24 @@ const slots = computed(() => props.field.slots ?? []);
 .field-area {
   backdrop-filter: blur(6px);
   background-color: rgba(255, 255, 255, 0.95);
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.field-slot {
+  min-height: 112px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border: 1px dashed rgba(15, 23, 42, 0.15);
+  border-radius: 1rem;
+}
+
+.field-empty {
+  width: 100%;
+  height: 100%;
 }
 </style>
