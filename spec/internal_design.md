@@ -94,6 +94,7 @@
 8. `RoundState`：`applyMove()` の状態遷移、履歴 (`history`) の整合確認。
 9. `MatchCoordinator`：初期配布、先攻決定のルール、局遷移。
 10. CPU 思考モジュール：候補抽出・期待値計算・コイコイ判定の分岐、モックデータによる最適手の選択確認。
+11. UI コンポーネント（`StatusBar`, `FieldArea`, `CapturedArea`, `HandArea`, `ActionPanel`）：レイアウトクラス適用、固定高さやスクロール設定、クリックイベントの emit を `@vue/test-utils` + Vitest で検証。
 
 ## 11. パフォーマンス・アクセシビリティ
 - 描画最適化：大きなアニメーションは requestAnimationFrame に委譲。
