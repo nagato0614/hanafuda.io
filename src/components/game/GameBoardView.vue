@@ -16,6 +16,14 @@ const props = defineProps({
   sceneKey: {
     type: String,
     default: ''
+  },
+  selectableFieldIds: {
+    type: Array,
+    default: () => []
+  },
+  selectableHandIds: {
+    type: Array,
+    default: () => []
   }
 });
 
@@ -66,6 +74,7 @@ const isGameScene = computed(() => props.sceneKey === 'Game');
                 :field="state.field"
                 class="board-field flex-grow-1"
                 :selected-card-id="state.field.selectedCardId"
+                :selectable-card-ids="selectableFieldIds"
                 @select-card="handleSelectFieldCard"
               />
 
@@ -82,6 +91,7 @@ const isGameScene = computed(() => props.sceneKey === 'Game');
                 :cards="state.player.hand"
                 :title="`${state.player.name} の手札`"
                 :selected-card-id="state.player.selectedCardId"
+                :selectable-card-ids="selectableHandIds"
                 @select-card="handleSelectCard"
               />
 

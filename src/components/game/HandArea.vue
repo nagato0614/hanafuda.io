@@ -13,12 +13,26 @@ const props = defineProps({
   selectedCardId: {
     type: String,
     default: null
+  },
+  selectableCardIds: {
+    type: Array,
+    default: () => []
   }
 });
 
 const emits = defineEmits(['select-card']);
 
+const isSelectable = (cardId) => {
+  if (!props.selectableCardIds?.length) {
+    return true;
+  }
+  return props.selectableCardIds.includes(cardId);
+};
+
 const handleSelect = (card) => {
+  if (!isSelectable(card.id)) {
+    return;
+  }
   emits('select-card', card);
 };
 </script>
@@ -35,14 +49,15 @@ const handleSelect = (card) => {
           v-for="card in cards"
           :key="card.id"
           type="button"
-          class="btn btn-link p-0 border-0"
+          class="btn btn-link p-0 border-0 hand-card-btn"
           :aria-pressed="card.id === selectedCardId"
+          :disabled="!isSelectable(card.id)"
           @click="handleSelect(card)"
         >
           <CardToken
             :card="card"
             size="lg"
-            selectable
+            :selectable="isSelectable(card.id)"
             :selected="card.id === selectedCardId"
           />
         </button>
@@ -54,5 +69,10 @@ const handleSelect = (card) => {
 <style scoped>
 .hand-scroll {
   overflow-x: auto;
+}
+
+.hand-card-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

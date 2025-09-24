@@ -46,7 +46,7 @@ const CapturedStub = defineComponent({
 });
 
 const FieldStub = defineComponent({
-  props: ['field', 'selectedCardId'],
+  props: ['field', 'selectedCardId', 'selectableCardIds'],
   emits: ['select-card'],
   setup(props, { emit }) {
     return () =>
@@ -68,7 +68,7 @@ describe('ルール表示モーダル', () => {
           CapturedArea: CapturedStub,
           FieldArea: FieldStub,
           HandArea: defineComponent({
-            props: ['cards'],
+            props: ['cards', 'selectableCardIds', 'selectedCardId'],
             setup(props, { emit }) {
               return () =>
                 h(
@@ -85,6 +85,7 @@ describe('ルール表示モーダル', () => {
       }
     });
 
+    await Promise.resolve();
     await nextTick();
 
     const startButton = wrapper

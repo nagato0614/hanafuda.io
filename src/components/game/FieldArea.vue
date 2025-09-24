@@ -10,12 +10,23 @@ const props = defineProps({
   selectedCardId: {
     type: String,
     default: null
+  },
+  selectableCardIds: {
+    type: Array,
+    default: () => []
   }
 });
 
 const emit = defineEmits(['select-card']);
 
 const TOTAL_SLOTS = 8;
+
+const isSelectable = (cardId) => {
+  if (!props.selectableCardIds?.length) {
+    return true;
+  }
+  return props.selectableCardIds.includes(cardId);
+};
 
 const gridCards = computed(() => {
   const cards = props.field.cards ?? [];
@@ -34,6 +45,10 @@ const gridCards = computed(() => {
 
 const handleSelect = (item) => {
   if (item.empty) {
+    return;
+  }
+
+  if (props.selectableCardIds?.length && !props.selectableCardIds.includes(item.id)) {
     return;
   }
 
@@ -65,12 +80,13 @@ const handleSelect = (item) => {
           type="button"
           class="field-card-btn"
           :class="{ selected: item.id === selectedCardId }"
+          :disabled="!isSelectable(item.id)"
           @click="handleSelect(item)"
         >
           <CardToken
             :card="item"
             size="md"
-            selectable
+            :selectable="isSelectable(item.id)"
             :selected="item.id === selectedCardId"
           />
         </button>
@@ -114,6 +130,11 @@ const handleSelect = (item) => {
 .field-card-btn.selected {
   outline: 3px solid #0d6efd;
   border-radius: 1rem;
+}
+
+.field-card-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .field-card-btn:focus-visible {
