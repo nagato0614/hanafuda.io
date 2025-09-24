@@ -1,6 +1,9 @@
 <script setup>
 import { reactive, ref } from 'vue';
 import GameBoardView from './components/game/GameBoardView.vue';
+import RuleModal from './components/modals/RuleModal.vue';
+import { useUiStateStore } from './stores/uiState';
+import { storeToRefs } from 'pinia';
 
 const createCard = (id, name, asset, shortLabel, category) => ({
   id,
@@ -35,6 +38,9 @@ const catalog = {
 };
 
 const cloneCard = (card) => ({ ...card });
+
+const uiState = useUiStateStore();
+const { isRuleModalOpen } = storeToRefs(uiState);
 
 const state = reactive({
   status: {
@@ -301,6 +307,7 @@ const handleAction = (action) => {
       state.status.koikoiLevel += 1;
       break;
     case 'view-rules':
+      uiState.showRuleModal();
       break;
     case 'end-turn':
       pushLog('ターンを終了しました（モック）。', 'info');
@@ -336,5 +343,10 @@ const handleStartGame = () => {
     @action="handleAction"
     @start-game="handleStartGame"
     :scene-key="activeSceneKey"
+  />
+
+  <RuleModal
+    v-if="isRuleModalOpen"
+    @close="uiState.hideRuleModal()"
   />
 </template>
