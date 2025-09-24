@@ -7,6 +7,10 @@ const props = defineProps({
   players: {
     type: Array,
     default: () => []
+  },
+  field: {
+    type: Object,
+    default: () => ({ drawPile: 0, discard: [] })
   }
 });
 </script>
@@ -21,12 +25,18 @@ const props = defineProps({
       <div class="badge text-bg-dark" v-if="status.turnLabel">{{ status.turnLabel }}</div>
     </div>
     <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap mt-2">
-      <div class="d-flex align-items-center gap-2">
+      <div class="d-flex align-items-center gap-2 flex-wrap">
         <span class="badge text-bg-secondary" v-if="status.timeRemaining">
           残り {{ status.timeRemaining }}
         </span>
         <div class="badge text-bg-warning text-dark" v-if="status.koikoiLevel">
           コイコイ {{ status.koikoiLevel }} 回目
+        </div>
+        <div class="badge text-bg-primary" v-if="Number.isFinite(field.drawPile)">
+          山札 {{ field.drawPile ?? 0 }} 枚
+        </div>
+        <div class="badge text-bg-light text-dark" v-if="field.discard?.length">
+          捨て札 {{ field.discard.length }} 枚
         </div>
       </div>
       <div class="d-flex align-items-center gap-3 score-stack">

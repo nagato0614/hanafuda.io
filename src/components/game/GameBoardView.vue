@@ -61,7 +61,11 @@ const isGameScene = computed(() => props.sceneKey === 'Game');
       <div class="ui-layer p-3">
         <template v-if="isGameScene">
           <div class="game-ui d-flex flex-column gap-3 h-100">
-            <StatusBar :status="state.status" :players="[state.opponent, state.player]" />
+            <StatusBar
+              :status="state.status"
+              :players="[state.opponent, state.player]"
+              :field="state.field"
+            />
 
             <div class="board-center flex-grow-1">
               <CapturedArea
