@@ -174,6 +174,7 @@ const pushLog = (message, variant = 'info') => {
 };
 
 const addCapturedCard = (playerState, card) => {
+  // カードのカテゴリごとに獲得札スタックへ追加する
   const key = card.category ?? 'others';
   let bucket = playerState.captured.find((entry) => entry.key === key);
 
@@ -190,6 +191,7 @@ const addCapturedCard = (playerState, card) => {
 };
 
 const handleSceneReady = (scene) => {
+  // Phaser 側でアクティブになったシーンを監視し、オーバーレイ表示などに使う
   activeScene.value = scene;
   activeSceneKey.value = scene?.scene?.key ?? '';
 };
@@ -223,6 +225,7 @@ const handleSelectCard = (card) => {
 };
 
 const handleSelectFieldCard = (card) => {
+  // 手札選択前に場札をクリックした場合は警告を出す
   if (!state.player.selectedCardId) {
     pushLog('先に手札を選択してください。', 'error');
     return;
@@ -261,6 +264,7 @@ const handleSelectFieldCard = (card) => {
 const handleAction = (action) => {
   switch (action.key) {
     case 'play-card': {
+      // 手札→場札の組み合わせが揃っているかを検証する
       if (!state.player.selectedCardId) {
         pushLog('手札を選択してください。', 'error');
         return;
@@ -289,6 +293,7 @@ const handleAction = (action) => {
       addCapturedCard(state.player, handCard);
       addCapturedCard(state.player, fieldCard);
 
+      // 成功した場合はスコアや選択状態をリセット
       state.player.capturedTotal += 2;
       state.player.roundScore += 1;
 
@@ -307,6 +312,7 @@ const handleAction = (action) => {
       state.status.koikoiLevel += 1;
       break;
     case 'view-rules':
+      // モーダルはストアで管理しているため、ここで開く
       uiState.showRuleModal();
       break;
     case 'end-turn':

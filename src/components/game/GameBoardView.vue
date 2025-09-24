@@ -22,6 +22,7 @@ const props = defineProps({
 const emits = defineEmits(['scene-ready', 'select-card', 'select-field-card', 'action', 'start-game']);
 
 const handleSceneReady = (scene) => {
+  // Phaser 側のシーン情報を親へ伝播し、Vue レイヤで状態を同期する
   emits('scene-ready', scene);
 };
 
@@ -30,6 +31,7 @@ const handleSelectCard = (card) => {
 };
 
 const handleSelectFieldCard = (card) => {
+  // 場札選択も親に委譲して、組み合わせ判定を一元管理する
   emits('select-field-card', card);
 };
 

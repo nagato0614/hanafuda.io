@@ -37,6 +37,7 @@ const handleSelect = (item) => {
     return;
   }
 
+  // 選択した場札を上位へ通知（手札との組み合わせ判定は App 側）
   emit('select-card', item);
 };
 </script>

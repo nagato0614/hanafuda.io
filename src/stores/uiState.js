@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 
+// ルールモーダルなど Vue 側の UI 状態を扱うストア
 export const useUiStateStore = defineStore('uiState', () => {
   const isRuleModalOpen = ref(false);
 

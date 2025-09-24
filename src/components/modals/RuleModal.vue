@@ -1,5 +1,7 @@
 <script setup>
 const emit = defineEmits(['close']);
+
+// ルール本文は後続で差し替えるため、ここでは骨組みのみ提供する
 </script>
 
 <template>
