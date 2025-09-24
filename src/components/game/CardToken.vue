@@ -53,6 +53,8 @@ const sizeClass = computed(() => sizeClassMap[props.size] ?? sizeClassMap.md);
 <style scoped>
 .card-token {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+  padding-bottom: 0.75rem;
+  display: inline-block;
 }
 
 .card-token-selectable:hover {

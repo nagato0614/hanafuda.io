@@ -6,8 +6,14 @@ const props = defineProps({
   field: {
     type: Object,
     default: () => ({ cards: [], drawPile: 0, discard: [] })
+  },
+  selectedCardId: {
+    type: String,
+    default: null
   }
 });
+
+const emit = defineEmits(['select-card']);
 
 const TOTAL_SLOTS = 8;
 
@@ -25,6 +31,14 @@ const gridCards = computed(() => {
 
   return [...cards, ...placeholders];
 });
+
+const handleSelect = (item) => {
+  if (item.empty) {
+    return;
+  }
+
+  emit('select-card', item);
+};
 </script>
 
 <template>
@@ -45,11 +59,20 @@ const gridCards = computed(() => {
         :key="item.id ?? `slot-${index}`"
         class="field-slot d-flex align-items-center justify-content-center"
       >
-        <CardToken
+        <button
           v-if="!item.empty"
-          :card="item"
-          size="md"
-        />
+          type="button"
+          class="field-card-btn"
+          :class="{ selected: item.id === selectedCardId }"
+          @click="handleSelect(item)"
+        >
+          <CardToken
+            :card="item"
+            size="md"
+            selectable
+            :selected="item.id === selectedCardId"
+          />
+        </button>
         <div v-else class="field-empty">&nbsp;</div>
       </div>
     </div>
@@ -73,6 +96,27 @@ const gridCards = computed(() => {
   min-height: 112px;
   background-color: rgba(255, 255, 255, 0.9);
   border: 1px dashed rgba(15, 23, 42, 0.15);
+  border-radius: 1rem;
+}
+
+.field-card-btn {
+  width: 100%;
+  height: 100%;
+  background: none;
+  border: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.field-card-btn.selected {
+  outline: 3px solid #0d6efd;
+  border-radius: 1rem;
+}
+
+.field-card-btn:focus-visible {
+  outline: 3px solid #0d6efd;
   border-radius: 1rem;
 }
 

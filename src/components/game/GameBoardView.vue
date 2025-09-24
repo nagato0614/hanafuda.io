@@ -19,7 +19,7 @@ const props = defineProps({
   }
 });
 
-const emits = defineEmits(['scene-ready', 'select-card', 'action', 'start-game']);
+const emits = defineEmits(['scene-ready', 'select-card', 'select-field-card', 'action', 'start-game']);
 
 const handleSceneReady = (scene) => {
   emits('scene-ready', scene);
@@ -27,6 +27,10 @@ const handleSceneReady = (scene) => {
 
 const handleSelectCard = (card) => {
   emits('select-card', card);
+};
+
+const handleSelectFieldCard = (card) => {
+  emits('select-field-card', card);
 };
 
 const handleAction = (action) => {
@@ -56,7 +60,12 @@ const isGameScene = computed(() => props.sceneKey === 'Game');
                 :categories="state.player.captured"
               />
 
-              <FieldArea :field="state.field" class="board-field flex-grow-1" />
+              <FieldArea
+                :field="state.field"
+                class="board-field flex-grow-1"
+                :selected-card-id="state.field.selectedCardId"
+                @select-card="handleSelectFieldCard"
+              />
 
               <CapturedArea
                 class="captured-column"
