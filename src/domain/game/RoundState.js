@@ -5,23 +5,25 @@ import { cloneCardCollection } from './utils.js';
 
 const DEFAULT_HAND_SIZE = 8;
 const DEFAULT_FIELD_SIZE = 8;
+const MAX_REDEAL_ATTEMPTS = 12;
 
 export class RoundState {
-  constructor({ seed, players }) {
+  constructor({ seed, players, deckFactory } = {}) {
     if (!Array.isArray(players) || players.length === 0) {
       throw new Error('Players are required to start a round.');
     }
-    this.deck = Deck.create({ seed });
-    this.players = players.map((playerConfig) => new PlayerState(playerConfig));
-    this.playerOrder = this.players.map((player) => player.id);
-    this.playerMap = new Map(this.players.map((player) => [player.id, player]));
-    this.field = new Field();
-    this.currentPlayerId = this.playerOrder[0];
+    this._baseSeed = seed;
+    this._playerConfigs = players.map((player) => ({ ...player }));
+    this._deckFactory = typeof deckFactory === 'function'
+      ? deckFactory
+      : ({ seed: deckSeed } = {}) => Deck.create({ seed: deckSeed });
+
     this.turnCount = 0;
     this.history = [];
     this.drawnCardForTurn = null;
+    this.redealCount = 0;
 
-    this._dealInitialCards();
+    this._initialiseRound();
   }
 
   _dealInitialCards() {
@@ -40,6 +42,76 @@ export class RoundState {
         this.field.addCard(card);
       }
     }
+  }
+
+  _initialiseRound() {
+    for (let attempt = 0; attempt < MAX_REDEAL_ATTEMPTS; attempt += 1) {
+      this.turnCount = 0;
+      this.history = [];
+      this.drawnCardForTurn = null;
+
+      this.deck = this._createDeck(attempt);
+      this.players = this._playerConfigs.map((playerConfig) => new PlayerState(playerConfig));
+      this.playerOrder = this.players.map((player) => player.id);
+      this.playerMap = new Map(this.players.map((player) => [player.id, player]));
+      this.field = new Field();
+      this.currentPlayerId = this.playerOrder[0] ?? null;
+
+      this._dealInitialCards();
+
+      const needsRedeal = this._requiresRedeal();
+      if (!needsRedeal) {
+        this.redealCount = attempt;
+        return;
+      }
+    }
+
+    throw new Error('Unable to produce playable round after maximum redeal attempts.');
+  }
+
+  _createDeck(attempt) {
+    const seed = this._resolveSeedForAttempt(attempt);
+    return this._deckFactory({ seed });
+  }
+
+  _resolveSeedForAttempt(attempt) {
+    if (this._baseSeed === undefined || this._baseSeed === null) {
+      return undefined;
+    }
+
+    const numericSeed = Number(this._baseSeed);
+    if (Number.isFinite(numericSeed)) {
+      const base = numericSeed >>> 0;
+      return (base + attempt) >>> 0;
+    }
+
+    return undefined;
+  }
+
+  _requiresRedeal() {
+    for (const player of this.players) {
+      if (this._hasSameMonthQuad(player.hand)) {
+        return { type: 'player-quad', playerId: player.id };
+      }
+    }
+
+    if (this._hasSameMonthQuad(this.field.cards)) {
+      return { type: 'field-quad' };
+    }
+
+    return null;
+  }
+
+  _hasSameMonthQuad(cards = []) {
+    const counts = new Map();
+    for (const card of cards) {
+      const total = (counts.get(card.month) ?? 0) + 1;
+      if (total >= 4) {
+        return true;
+      }
+      counts.set(card.month, total);
+    }
+    return false;
   }
 
   getPlayer(playerId) {
