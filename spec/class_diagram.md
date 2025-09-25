@@ -13,48 +13,51 @@ skinparam class {
 }
 
 class GameService {
-  +startMatch(config: RuleConfig)
-  +startRound(month: number)
-  +playCard(playerId: string, cardId: string)
-  +resolveKoikoi(choice: KoikoiChoice)
-}
-
-class MatchState {
-  +monthIndex: number
-  +rounds: RoundState[]
-  +totalScores: Map<string, number>
-  +isFinished(): boolean
-  +advanceRound(): void
+  +startMatch(config: MatchConfig): MatchSnapshot
+  +getSnapshot(): MatchSnapshot
+  +getCurrentPlayerId(): string
+  +getAvailableMoves(playerId: string): Move[]
+  +playCard(move: Move): MatchSnapshot
+  +isRoundFinished(): boolean
 }
 
 class RoundState {
   +currentPlayerId: string
-  +phase: RoundPhase
+  +turnCount: number
   +history: GameEvent[]
-  +applyMove(move: Move): RoundState
   +availableMoves(playerId: string): Move[]
+  +applyMove(move: Move): void
+  +isComplete(): boolean
+  +snapshot(): RoundSnapshot
 }
 
 class Field {
-  +slots: Map<Month, CardBase[]>
-  +placeCard(card: CardBase): void
-  +collect(month: Month, selected: CardBase): CardBase[]
+  +cards: CardBase[]
+  +discard: CardBase[]
+  +addCard(card: CardBase): void
+  +placeOrCapture(card: CardBase, selectedId: string): CaptureResult
+  +snapshot(): FieldSnapshot
 }
 
-class Player {
+class PlayerState {
   +id: string
   +name: string
   +hand: CardBase[]
   +captured: CardBase[]
-  +koikoiCount: number
-  +playCard(cardId: string): CardBase
+  +receiveCard(card: CardBase): void
+  +removeHandCard(cardId: string): CardBase
+  +captureCards(cards: CardBase[]): void
+  +snapshot(): PlayerSnapshot
 }
 
 class Deck {
-  +cards: CardBase[]
-  +seed: number
-  +shuffle(): void
-  +draw(): CardBase
+  +draw(): CardBase?
+  +remaining: number
+}
+
+class Random {
+  +next(): number
+  +shuffle(cards: CardBase[]): CardBase[]
 }
 
 abstract class CardBase {
@@ -62,62 +65,14 @@ abstract class CardBase {
   +month: Month
   +name: string
   +category: CardCategory
-  +points: number
-  +isSpecial: boolean
-  +tags: string[]
-  +clone(): CardBase
 }
 
-class PineCraneCard
-class PlumWarblerCard
-class CherryCurtainCard
-
-class YakuEvaluator {
-  +ruleSet: RuleConfig
-  +evaluate(captured: CardBase[]): YakuResult[]
-}
-
-class ScoreCalculator {
-  +ruleSet: RuleConfig
-  +calculate(results: YakuResult[], koikoiLevel: number): number
-}
-
-class RuleConfig {
-  +yakuTable: YakuDefinition[]
-  +koikoiMultipliers: number[]
-  +specialRules: SpecialRule[]
-}
-
-class MatchCoordinator {
-  +distributeInitialCards(): void
-  +determineFirstPlayer(): string
-  +nextPlayer(current: string): string
-}
-
-class Logger {
-  +log(event: GameEvent): void
-  +export(): GameEvent[]
-}
-
-GameService --> MatchState : manages
-GameService --> YakuEvaluator : uses
-GameService --> ScoreCalculator : uses
-GameService --> MatchCoordinator : orchestrates
-GameService --> Logger : emits
-MatchState --> RoundState : aggregates
+GameService --> RoundState : manages
 RoundState --> Field : owns
-RoundState --> Player : tracks
+RoundState --> PlayerState : tracks
 RoundState --> Deck : draws
-Player --> CardBase : maintains hand
+Deck --> Random : uses
+PlayerState --> CardBase : maintains hand
 Field --> CardBase : manages
-Deck --> CardBase : supplies
-YakuEvaluator --> RuleConfig : reads
-ScoreCalculator --> RuleConfig : reads
-MatchCoordinator --> Deck : shuffles
-Logger --> GameEvent : stores
-
-CardBase <|-- PineCraneCard
-CardBase <|-- PlumWarblerCard
-CardBase <|-- CherryCurtainCard
 @enduml
 ```
