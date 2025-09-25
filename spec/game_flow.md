@@ -1,78 +1,66 @@
 # ゲームフロー図
 
-PlantUML によるシーケンス図で、こいこい1局の進行とマッチ全体の終端までを可視化する。ソースは `spec/game_flow.puml` にも保存している。
+現状の実装が辿る 1 手番分のイベントフローを PlantUML のシーケンス図として整理した。ソースは `spec/game_flow.puml` にも保存している。
 
 ```plantuml
-@startuml GameFlow
+@startuml CurrentPlayFlow
 skinparam backgroundColor #ffffff
-skinparam defaultTextAlignment center
-skinparam participantPadding 20
 skinparam shadowing false
-skinparam ArrowThickness 1.2
-skinparam SequenceLifeLineBorderColor #777777
-skinparam SequenceLifeLineBackgroundColor #f9f9f9
+skinparam ParticipantPadding 18
+skinparam sequence {
+  ArrowThickness 1.1
+  LifeLineBorderColor #777777
+  LifeLineBackgroundColor #f9f9f9
+}
 
-actor Player as P
-participant "UI /\nMatchStore" as UI
-participant GameService as GS
-participant MatchCoordinator as MC
-participant RoundState as RS
-participant Field as FD
-participant YakuEvaluator as YE
-participant ScoreCalculator as SC
-participant MatchState as MS
+actor Player
+participant "Vue UI\n(Hand / Field)" as UI
+participant "Pinia Store\nuseMatchStore" as Store
+participant "Backend Adapter\n(gameBackend.js)" as Backend
+participant GameState as GS
+participant GameService as Service
+participant RoundState as Round
+participant Field
+participant Deck
+participant "PlayerState\n(各プレイヤー)" as PState
 
-P -> UI : startMatch()
-UI -> GS : startMatch(config)
-GS -> MC : distributeInitialCards()
-MC --> GS : initialHands / field
-GS -> MS : initializeRound()
-GS -> UI : renderInitialState
+== 手札選択 ==
+Player -> UI : カードをクリック
+UI -> Store : selectHandCard(card)
+Store -> Backend : fetchSelectableFieldCards(card.id)
+Backend -> GS : getSelectableFieldCards(card.id)
+GS -> Service : getSnapshot()
+Service -> Round : snapshot()
+Round --> Service : RoundSnapshot
+Service --> GS : MatchSnapshot
+GS --> Backend : 場札候補一覧
+Backend --> Store : selectableFieldIds
+Store --> UI : 候補ハイライト
 
-== Turn Loop ==
-P -> UI : playCard(cardId)
-UI -> GS : playCard(playerId, cardId)
-GS -> RS : applyMove(cardId)
-RS -> FD : placeOrCapture(card)
-FD --> RS : captureResult
-RS --> GS : moveResult
-
-alt Capture success
-  GS -> YE : evaluate(captured)
-  YE --> GS : yakuResults
-  alt Yaku formed
-    GS -> UI : promptKoikoi(yakuResults)
-    opt Player chooses Koikoi
-      UI -> GS : resolveKoikoi(continue)
-      GS -> RS : updateKoikoiState()
-    end
-    opt Player ends round
-      UI -> GS : resolveKoikoi(stop)
-      GS -> RS : lockRound()
-    end
-  else No yaku
-    GS -> UI : updateCapturedView
-  end
-else No capture
-  GS -> UI : updateField
-end
-
-GS -> MC : checkTurnEnd()
-MC --> GS : nextPlayer or roundEnd
-
-alt Round ends
-  GS -> SC : calculate(yakuResults, koikoiLevel)
-  SC --> GS : scoreDelta
-  GS -> MS : applyScore(scoreDelta)
-  GS -> UI : showRoundSummary(scoreDelta)
-  GS -> MS : advanceRound()
-  GS -> UI : startNextRound()
-else Next turn
-  GS -> UI : setActivePlayer()
-end
-
-== Match End ==
-MS -> GS : isFinished()
-GS -> UI : showMatchResult(totalScores)
+== 手札プレイ ==
+Player -> UI : 「手札を出す」を実行
+UI -> Store : handleAction('play-card')
+Store -> Backend : playCards(handId, fieldId)
+Backend -> GS : playCards(handId, fieldId)
+GS -> Service : getAvailableMoves(playerId)
+Service -> Round : availableMoves(playerId)
+Round --> Service : Move[]
+GS -> Service : playCard(move)
+Service -> Round : applyMove(move)
+Round -> PState : removeHandCard()
+Round -> Field : placeOrCapture()
+Field --> Round : captureResult
+Round -> Deck : draw()
+Deck --> Round : deckCard / null
+Round -> Field : placeOrCapture(deckCard)
+Field --> Round : captureResult
+Round -> PState : captureCards(...)
+Round --> Service : 更新された状態
+Service --> GS : MatchSnapshot
+GS --> Backend : { state, log }
+Backend --> Store : state/log
+Store --> UI : 画面更新
 @enduml
 ```
+
+手札選択からプレイ完了までを 2 つのフェーズに分け、現行コードが直接利用しているコンポーネント（GameState → GameService → RoundState）とストア経由の UI 更新がどのように連携するかを明示した。
