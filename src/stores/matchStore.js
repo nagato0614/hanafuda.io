@@ -128,7 +128,17 @@ export const useMatchStore = defineStore('match', {
       }
 
       if (this.selectedHandId === card.id) {
-        this.clearSelections();
+        this.selectedHandId = null;
+        this.selectableHandIds = [];
+        this.selectableFieldIds = [];
+        this.selectedFieldId = null;
+        if (this.match?.player) {
+          this.match.player.selectedCardId = null;
+        }
+        if (this.match?.field) {
+          this.match.field.selectedCardId = null;
+        }
+        this._refreshActions();
         return;
       }
 
@@ -207,6 +217,10 @@ export const useMatchStore = defineStore('match', {
         this.selectedFieldId = null;
         if (this.match.field) {
           this.match.field.selectedCardId = null;
+        }
+        if (!this.selectedHandId) {
+          this.selectableFieldIds = [];
+          this.selectableHandIds = [];
         }
         this._refreshActions();
         return;

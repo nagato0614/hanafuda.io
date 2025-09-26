@@ -19,7 +19,9 @@ const props = defineProps({
 
 const emit = defineEmits(['select-card']);
 
-const TOTAL_SLOTS = 8;
+const BASE_COLUMNS = 4;
+const EXPANDED_COLUMNS = 5;
+const ROWS = 2;
 
 const isSelectable = (cardId) => {
   if (!props.selectableCardIds?.length) {
@@ -30,12 +32,14 @@ const isSelectable = (cardId) => {
 
 const gridCards = computed(() => {
   const cards = props.field.cards ?? [];
+  const columns = cards.length > BASE_COLUMNS * ROWS ? EXPANDED_COLUMNS : BASE_COLUMNS;
+  const minSlots = columns * ROWS;
+  const requiredSlots = Math.max(
+    minSlots,
+    Math.ceil(cards.length / columns) * columns
+  );
 
-  if (cards.length >= TOTAL_SLOTS) {
-    return cards.slice(0, TOTAL_SLOTS);
-  }
-
-  const placeholders = Array.from({ length: TOTAL_SLOTS - cards.length }, (_, index) => ({
+  const placeholders = Array.from({ length: requiredSlots - cards.length }, (_, index) => ({
     id: `empty-slot-${index}`,
     empty: true
   }));
@@ -69,7 +73,7 @@ const handleSelect = (item) => {
         <div class="badge text-bg-secondary" v-if="field.discard?.length">捨て札 {{ field.discard.length }} 枚</div>
       </div>
     </div>
-    <div class="field-grid">
+    <div class="field-grid" :class="{ expanded: (field.cards?.length ?? 0) > BASE_COLUMNS * ROWS }">
       <div
         v-for="(item, index) in gridCards"
         :key="item.id ?? `slot-${index}`"
@@ -102,18 +106,26 @@ const handleSelect = (item) => {
   background-color: rgba(255, 255, 255, 0.95);
 }
 
+
 .field-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  grid-template-rows: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  grid-auto-rows: minmax(104px, 1fr);
+  gap: 0.75rem;
+}
+
+.field-grid.expanded {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-auto-rows: minmax(96px, 1fr);
+  gap: 0.5rem;
 }
 
 .field-slot {
-  min-height: 112px;
+  min-height: 96px;
+  padding: 0.15rem;
   background-color: rgba(255, 255, 255, 0.9);
-  border: 1px dashed rgba(15, 23, 42, 0.15);
-  border-radius: 1rem;
+  border: 1px dashed rgba(15, 23, 42, 0.12);
+  border-radius: 0.85rem;
 }
 
 .field-card-btn {
