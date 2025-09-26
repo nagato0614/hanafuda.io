@@ -1,149 +1,68 @@
 # 花札こいこい 内部設計書
 
 ## 1. システム概要
-- 技術スタック：Vue 3 + TypeScript + Vite + Pinia（状態管理）+ Vitest（単体テスト）を想定。
-- 対象プラットフォーム：モダンブラウザ（Chromium, Firefox, Safari 最新2世代）。
-- 目的：対人プレイ（ローカル／オンライン）を行える花札「こいこい」ゲームの実装。
+- 技術スタック: Vue 3 + Vite + JavaScript (ES Modules) + Pinia + Vitest。
+- 対応ブラウザ: Chromium / Firefox / Safari の最新世代。
+- 目的: シングルプレイヤーで CPU と対戦する花札「こいこい」の Web クライアントを提供する。
 
-## 2. 全体アーキテクチャ
-- プレゼンテーション層：Vue コンポーネントで UI を構築。
-- アプリケーション層：ゲーム進行を司るサービス（`GameService`）、イベントバス、タイマー管理。
-- ドメイン層：カード、デッキ、プレイヤー、役判定などの純粋ロジックを TypeScript クラス／関数で実装。
-- インフラ層：ローカルストレージ永続化、オンライン対戦時の通信アダプタ（WebSocket 予定）。
-- ゲーム描画と UI は段階的に分離し、Phaser シーン側にカード表示・処理を集約、Vue は補助 UI（メニュー、設定、ログ）に絞る構成へ移行予定。
+## 2. レイヤ構成
+- **プレゼンテーション層**: Vue コンポーネント群 (`src/components/**`) が UI を描画。Phaser コンポーネントは背景のみ担当。
+- **アプリケーション層**: `GameState` がドメイン層を包み込み、UI 用スナップショット・ログメッセージ・API 風インターフェースを提供。
+- **ドメイン層**: `RoundState`, `GameService`, `Field`, `PlayerState`, `Deck`, `YakuEvaluator`, `ScoreCalculator` など純粋ロジック。外部依存なし。
+- **バックエンドモック**: `src/backend/gameBackend.js` が Pinia からの呼び出しを `GameState` に橋渡しする擬似 API。
+- **状態管理**: Pinia の `useMatchStore` がスナップショットと UI 状態 (選択中の札・ログ等) を保持。
 
-## 3. ディレクトリ構成案
-- `src/domain`: ドメインモデル（`card.ts`, `deck.ts`, `player.ts`, `yaku.ts`, `score.ts`）。
-- `src/application`: `GameService`, `MatchCoordinator`, `RuleConfig`。
-- `src/presentation`: Vue コンポーネント (`BoardView.vue`, `HandView.vue`, `KoikoiDialog.vue` など)。
-- `src/store`: Pinia ストア定義（`useMatchStore.ts`, `useSettingsStore.ts`）。
-- `src/infrastructure`: API クライアント、永続化アダプタ。
-- `src/utils`: 共通ユーティリティ（シャッフル、ID 生成、日付処理）。
+## 3. ディレクトリ概要
+- `src/domain/cards/`: カード定義・生成ユーティリティ。
+- `src/domain/game/`: ラウンド・マッチ進行ロジック (`RoundState.js`, `GameService.js`, `YakuEvaluator.js`, `ScoreCalculator.js` 等)。
+- `src/application/GameState.js`: UI から利用するファサード。スナップショット生成とログ整形を担当。
+- `src/backend/gameBackend.js`: Pinia ストアから呼ばれる非同期ラッパー。
+- `src/stores/matchStore.js`: Pinia ストア本体。選択状態・アクション表示・ログ管理。
+- `src/components/**`: Vue コンポーネント (GameBoardView, ActionPanel, StatusBar など)。
+- `tests/**`: Vitest によるユニット/統合テスト。
 
-## 4. ドメインモデル概要
-| モデル | 役割 | 主なプロパティ | 主なメソッド |
+## 4. ドメインモデル
+| モデル | 役割 | 主な状態 | 主な操作 |
 | --- | --- | --- | --- |
-| `Card` | 花札1枚の表現 | `id`, `month`, `type`, `points`, `isSpecial` | - |
-| `Deck` | 山札の管理 | `cards: Card[]`, `seed` | `shuffle()`, `draw()` |
-| `Player` | プレイヤー状態 | `id`, `name`, `hand`, `captured`, `score`, `koikoiCount` | `playCard()`, `capture()` |
-| `Field` | 場札の管理 | `slots: Map<month, Card[]>` | `placeCard()`, `matchCard()` |
-| `RoundState` | 局単位の状態 | `currentPlayerId`, `phase`, `history` | `applyMove()`, `checkYaku()` |
-| `YakuEvaluator` | 役判定ロジック | `ruleSet` | `evaluate(capturedCards)` |
-| `ScoreCalculator` | 得点計算 | `ruleSet` | `calculate(yakuResults)` |
-| `MatchState` | 12局セットの状態 | `rounds`, `totalScores`, `monthIndex` | `advance()`, `isFinished()` |
+| `Deck` | 山札管理 | `_cards`, `_rng` | `draw()`、`remaining` |
+| `Field` | 場札管理 | `cards`, `discard` | `addCard()`, `placeOrCapture()` |
+| `PlayerState` | プレイヤー | `hand`, `captured` | `receiveCard()`, `removeHandCard()`, `captureCards()` |
+| `RoundState` | 局進行 | `currentPlayerId`, `playerStatus`, `pendingKoikoi`, `roundResult` | `availableMoves()`, `applyMove()`, `handleKoikoiDecision()`, `snapshot()` |
+| `YakuEvaluator` | 役判定 | - | `evaluate(capturedCards)` |
+| `ScoreCalculator` | 得点計算 | - | `computePlayerScore()`, `buildRoundPoints()` |
+| `GameService` | マッチ統括 | `matchState`, `round` | `startMatch()`, `playCard()`, `resolveKoikoi()`, `startNextRound()`, `getSnapshot()` |
 
-- クラス間の関係は `spec/class_diagram.md` (PlantUML) を参照。
-
-### カード定数
-- `MONTH_LABELS`: `1`〜`12`をキーに月札のテーマ名（英語表記）を格納。
-- `CARD_CATEGORIES`: 札の大別（`light`, `animal`, `ribbon`, `chaff`）。
-- `RIBBON_COLORS`: 短冊の色区分（`red`, `blue`, `plain`）。
-- `DEFAULT_POINTS_BY_CATEGORY`: 上記カテゴリごとの基礎点（光20／タネ10／短冊5／カス1）。
-- `CARD_BLUEPRINTS`: 48枚すべてのメタデータ。`className`, `id`, `month`, `name`, `category`, `ribbonColor`, `isSpecial`, `tags` を保持。
-- `cardClassRegistry` / `cardClassesById`: `CardBase` を継承した個別カードクラスの参照（`src/domain/cards/index.js`）。
-- `cardInstances`: 全カードの不変インスタンス配列。テスト・初期化での使い回しを想定。
-
-## 5. 状態管理（Pinia）
-- `useMatchStore`
-  - 保持：`matchState`, `uiState`, `messageQueue`。
-  - アクション：`startMatch(config)`, `startRound()`, `playCard(cardId)`, `resolveKoikoi(choice)`。
-- `useSettingsStore`
-  - 保持：サウンドON/OFF、持ち時間、ルールバリエーション。
-- デッキ／手札／場札／獲得札などの状態はゲームロジック層 (`GameService.getState()`) から取得し、フロントは受け取ったデータをストアに格納して描画する。
-- デッキ／手札／場札／獲得札はバックエンド API (`GET /matches/{matchId}/state`) から取得し、ストアを通じて Vue 側へ供給する。
+## 5. Pinia ストア
+- ストア ID: `useMatchStore`。
+- 保持する代表的な状態: `match` (現在スナップショット), `matchInfo` (累計スコア等), `pendingKoikoi`, `roundResult`, 選択中の札 ID、ログ一覧。
+- 主なアクション: `loadInitialState()`, `selectHandCard()`, `selectFieldCard()`, `playSelectedCards()`, `resolveKoikoi()`, `startNextRound()`。
+- `match.actions.primary/secondary` に UI ボタンを構築し、Koikoi 選択・次局開始・カード出し等を制御する。
 
 ## 6. ゲームフロー
-1. `GameService.startMatch()` が呼ばれ、デッキ生成・シャッフルを行う。
-2. `MatchCoordinator` が初期配布を行い、`RoundState` を初期化。
-3. プレイヤー入力（クリック／タップ）→ `playCard` アクション。
-4. `GameService` が手番ロジックを処理し、`YakuEvaluator` で役判定。
-5. 上がり／コイコイ選択を `MatchStore` に dispatch。
-6. 局終了時に `ScoreCalculator` が得点を更新し、`MatchState` を進行。
-7. 12局終了でゲーム終了ダイアログを表示。
-   - 詳細なイベント遷移は `spec/game_flow.md` の PlantUML シーケンス図を参照。
+1. `GameService.startMatch()` でマッチ初期化。ラウンドを生成し、初期配札・再配札チェックを実行。
+2. `RoundState.availableMoves()` が手番ごとの合法手を列挙。CPU 手番と Koikoi 判定は `GameService._autoPlayIfNeeded()` が自動進行。
+3. プレイヤーは Pinia を通じて `playCards()` を呼び出し、`GameService.playCard()` が `RoundState.applyMove()` を実行。
+4. 役成立時は `RoundState.pendingKoikoi` をセットし、プレイヤー／CPU が `handleKoikoiDecision()` で「コイコイ」「上がり」を選択。
+5. ラウンド終了後 `ScoreCalculator` が得点を確定。`GameService` が累計スコア、次局先手、再開イベントを管理。
+6. 規定局数に到達すると `matchState.isFinished` が真となり、スナップショットに最終結果が含まれる。
 
-## 7. イベントとログ
-- `GameEvent` 型でイベント名と payload を定義 (`CardPlayed`, `CardCaptured`, `YakuCompleted`, `RoundEnded` など)。
-- `history` にイベントを蓄積し、UI のアニメーション再生やリプレイ機能に用いる。
-- デバッグ用途にコンソールログと保存可能な JSON 出力を提供。
-- UI ログにはゲーム進行に関わるアクションのみ記録し、ルール表示など状態変化がない操作は含めない。
+## 7. ログとイベント
+- `GameState` が `GameService` から得たイベント配列 (turn, koikoi-prompt, koikoi-decision, round-start/end, match-end) をメッセージへ整形。
+- ストアはログを最大 50 件保持し、`ActionPanel` で表示。重要イベントは success/warning 等のバリアントを付与。
 
-## 8. ルール設定
-- `RuleConfig` で以下を管理
-  - 使用役一覧と点数テーブル
-  - コイコイ倍率の上限
-  - 特殊ルール（早上がり、完全勝利、流局条件など）
-- 将来のバリアント対応のため JSON 形式で設定保存可能にする。
+## 8. UI コンポーネント構成
+- `GameBoardView` が全 UI を統括。`StatusBar`, `FieldArea`, `CapturedArea`, `HandArea`, `ActionPanel` を配置。
+- `ActionPanel` は Pinia の `actions.primary/secondary` 配列に従ってボタンを描画し、ユーザー操作をストアへ emit。
+- `StatusBar` は手番 / コイコイ回数 / 山札残 / 総合スコアを表示。
 
-## 9. エラーハンドリング
-- 不正な手番（存在しないカードなど）は `InvalidMoveError` を throw。
-- UI ではモーダル／トーストでユーザーに通知し、状態復旧を試みる。
-- オンライン対戦時はサーバー側と整合性チェックを行い、差異があればロールバック。
+## 9. CPU 仕様概要
+- 対戦相手: 「CPU 花子」。手番ロジックはヒューリスティックで最初に獲得できる手を優先。
+- Koikoi 判定: 役成立時、基礎点が 7 点以上なら上がり、それ未満はコイコイ継続。(暫定ロジック)
+- CPU 手番と Koikoi 決定は `GameService._autoPlayIfNeeded()` 内で実行。
 
-## 10. テスト戦略
-- 単体テスト：ドメイン層（役判定、得点計算、シャッフル再現性）。
-- 結合テスト：`GameService` と `YakuEvaluator` の組み合わせ。
-- E2E：`@vue/test-utils` + `vitest`、必要に応じて `Playwright` を導入。
-- プロパティベーステスト：山札シャッフルや役成立確率の検証に fast-check を検討。
+## 10. サウンドアセット
+- `src/assets/sound/agari.mp3` : 上がり宣言演出。
+- `src/assets/sound/click_fuda.mp3` : 手札・場札クリック時のフィードバック。
+- `src/assets/sound/fuda_select.mp3` : 札を選択状態へ切り替える際のハイライト音。
+- `src/assets/sound/start_button.mp3` : タイトル画面等で対局開始ボタンを押したときの効果音。
 
-### 単体テスト対象リスト
-1. `CardBase` と個別カードクラス：コンストラクタバリデーション、`toJSON`/`clone` の動作確認。
-2. `cardDefinitionsById` / `cardClassesById`：全48枚の定義整合性、重複 ID 検知、月別フィルタリング (`listCardsByMonth`)。
-3. `Deck`：初期化時のカード枚数、`shuffle()` の乱択性（シード固定時の再現性）、`draw()` の例外処理。
-4. `Player`：`playCard()` のハンド減算、副作用の検証、`capture()` の挙動。
-5. `Field`：`placeCard()`／`matchCard()` の結果整合性、同月札複数時の選択処理。
-6. `YakuEvaluator`：役ごとの成立条件と加点ロジック、複合役の優先順位。
-7. `ScoreCalculator`：コイコイ倍率・追加点処理、異常入力防止。
-8. `RoundState`：`applyMove()` の状態遷移、履歴 (`history`) の整合確認。
-9. `MatchCoordinator`：初期配布、先攻決定のルール、局遷移。
-10. CPU 思考モジュール：候補抽出・期待値計算・コイコイ判定の分岐、モックデータによる最適手の選択確認。
-11. UI コンポーネント（`StatusBar`, `FieldArea`, `CapturedArea`, `HandArea`, `ActionPanel`）：レイアウトクラス適用、固定高さやスクロール設定、クリックイベントの emit を `@vue/test-utils` + Vitest で検証。
-
-## 11. パフォーマンス・アクセシビリティ
-- 描画最適化：大きなアニメーションは requestAnimationFrame に委譲。
-- コンポーネントの再レンダリングを抑えるため、非リアクティブデータは `shallowRef` を活用。
-- アクセシビリティ：キーボード操作、スクリーンリーダー対応の aria 属性設計。
-
-## 12. 今後の拡張ポイント
-- AI プレイヤー導入のための `BotStrategy` インターフェース。
-- マルチプレイヤー同期用のサーバーレイヤ（Node.js + ws）とクライアントアダプタ。
-- スキン／アセット切り替え機能、ユーザープロフィール保存。
-
-## 13. UIレイアウト仕様
-- 画面解像度は 1332x999（4:3 比率、従来の約1.3倍）を基準値とし、ブラウザ表示時は中央寄せで余白を確保する。
-- `CapturedArea.vue` を左右に2分割し、左をローカルプレイヤー、右を対戦相手専用にする。
-- 場札エリアは月ごとに分けず、4列×2行（計8枠）の固定グリッドで表示し、空き枠はハイライトのみを表示する。
-- `CapturedArea` の各カテゴリはカードを手前に向けた扇状に重ねて表示し（トランプマジックのイメージ）、手札は従来どおり 1 枚ずつ並べて視認性を優先する。
-- ステータスバー上に CPU とプレイヤーの総得点・局内得点を並べ、手番／残り時間と同一領域で確認できるようにする。
-- 操作ボタンとログは画面下部のアクションパネルにまとめ、手札エリアの直下へ全幅で配置する。
-- アクションパネルのボタン列は横一列で表示し、テキストの増減で高さが変わらないよう水平スクロールで対応する。
-- アクションパネル全体は固定高さ（約240px）とし、ログ領域は内部スクロールで表示して場札エリアの高さを維持する。
-- 手札エリアは固定高さを持たず自然な高さで並べ、下部UIの高さ変動が中央エリアへ影響しないようにする。
-- タイトル画面は `MainMenuOverlay` で表示し、Phaser シーンが `MainMenu` の間はメインUIを非表示にして中央にスタートボタンを配置する。
-- 手番表示はバックエンドが返却する `currentTurnPlayerId` などの値を使用し、フロント側で差分更新する。
-- `CardToken` はホバー時に直下へ通称ラベル（`CardTooltip`）をフェードイン表示し、タッチ環境ではロングタップで同様のラベルを表示する。
-- ホバー／タップ時のラベル表示はアクセシビリティ対応として `aria-live="polite"` のリージョンに反映する。
-- カード出しの流れは「手札を選択 → 場札を選択 → `手札を出す` ボタン押下」で成立させ、取得可能な場合のみ獲得札へ移動する。条件に合致しない場合はログへ赤字メッセージで「選択できません」を表示する。
-- 画面遷移は `Boot → Preloader → MainMenu → Game → GameOver → MainMenu` のサイクルとし、`Game` シーンではタイトル用テキストを描画せず UI レイヤーのみで演出する。
-- 将来的にはゲームシーンの UI を Phaser 側で完結させ、Vue レイヤーは補助的なメニュー／設定／ログ表示に限定するロードマップとする。
-- 手札／場札の選択可否はゲームロジック層が返す候補リストに従い、フロントは許可されたカードのみハイライトする（逆順操作にも対応）。
-
-## 14. CPU 対戦相手仕様
-- デフォルト対戦相手は「CPU 花子」とし、難易度は `normal`（平均的な強さ）を初期値とする。将来的には `easy`／`hard`／`expert` などの拡張を想定する。
-- 思考ロジックは以下の段階で構成する。
-  1. **候補抽出**：手札から出せる札と、場札とのマッチ候補を列挙し、成立役・役候補数・相手への妨害度を評価指標としてスコアリングする。
-  2. **期待値計算**：役成立確率、獲得点数、山札残りに基づくリスク評価を行い、期待得点の高い手を優先する。
-  3. **コイコイ判断**：直近の獲得点、役の伸びしろ、相手の役候補状況を基に閾値（例：期待点>=7、差分>=5）を超えた場合のみコイコイを選択する。
-- CPU の手番処理には 400〜600ms の疑似思考遅延を入れ、プレイヤーが挙動を追いやすくする。遅延時間は難易度によって調整する。
-- UI には CPU のアクションを以下のイベントで反映する。
-  - 手番開始時にステータスバーへ「CPU 花子の手番」を表示し、手札エリアを半透明化。
-  - 札を出す／役を成立させる／コイコイ宣言をするたびにログへ記録し、必要に応じてトースト通知を表示する。
-  - ゲームオーバー画面では CPU の戦績（役数・コイコイ回数）を併記する。
-- 評価関数は「1手先を読む全探索」を基本とし、各候補手をプレーした後の盤面評価値（役成立数、得点差、山札残枚数）を比較して最良手を選ぶ。
-- AI ロジックは `src/domain/cpu` 配下に配置し、純粋関数として実装してテスト可能性を確保する。
-
-## 15. サウンドアセット
-- `src/assets/sound/agari.mp3` : プレイヤーもしくは CPU が「上がり」を宣言した瞬間に再生し、局終了を印象付けるフィニッシュサウンド。
-- `src/assets/sound/click_fuda.mp3` : 手札・場札の選択操作時に鳴らす軽いクリック音。カードインタラクションのフィードバックとして利用。
-- `src/assets/sound/fuda_select.mp3` : 場札をハイライトする際など、カード選択状態に遷移したときのアクセントとして使用する。
-- `src/assets/sound/start_button.mp3` : タイトル画面やメニューで対局開始ボタンを押した際に再生し、ゲーム開始の期待感を演出する。
