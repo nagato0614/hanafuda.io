@@ -3,26 +3,34 @@ import {
   fetchGameState,
   fetchSelectableFieldCards,
   fetchSelectableHandCards,
-  playCards
+  playCards,
+  resolveKoikoi as resolveKoikoiRemote,
+  startNextRound as startNextRoundRemote
 } from '../backend/gameBackend.js';
 
+const MAX_LOGS = 50;
+
 const defaultActions = () => ({
-  primary: [
-    { key: 'play-card', label: '手札を出す', variant: 'primary', disabled: true },
-    { key: 'call-koikoi', label: 'コイコイ宣言', variant: 'warning', disabled: false }
-  ],
-  secondary: [
-    { key: 'view-rules', label: 'ルールを見る', variant: 'secondary', disabled: false },
-    { key: 'end-turn', label: 'ターンを終了', variant: 'secondary', disabled: false }
-  ],
+  primary: [],
+  secondary: [],
   logs: []
 });
 
-const getPlayAction = (match) => match?.actions.primary.find((action) => action.key === 'play-card');
+function createLogEntry(message, variant = 'info') {
+  return {
+    id: `log-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    time: new Date().toLocaleTimeString('ja-JP', { hour12: false }).slice(0, 5),
+    message,
+    variant
+  };
+}
 
 export const useMatchStore = defineStore('match', {
   state: () => ({
     match: null,
+    matchInfo: null,
+    pendingKoikoi: null,
+    roundResult: null,
     loading: false,
     error: null,
     selectedHandId: null,
@@ -39,8 +47,8 @@ export const useMatchStore = defineStore('match', {
       this.loading = true;
       this.error = null;
       try {
-        const data = await fetchGameState();
-        this.applyBackendState(data, { resetLogs: true });
+        const snapshot = await fetchGameState();
+        this.applyBackendState(snapshot, { resetLogs: true });
         this.clearSelections();
       } catch (err) {
         this.error = err;
@@ -51,70 +59,66 @@ export const useMatchStore = defineStore('match', {
     setScene(scene) {
       this.sceneKey = scene?.scene?.key ?? '';
     },
-    applyBackendState(backendData, { resetLogs = false } = {}) {
-      const existingLogs = resetLogs
-        ? [...(backendData.logs ?? [])]
-        : [...(this.match?.actions.logs ?? []), ...(backendData.logs ?? [])];
+    applyBackendState(snapshot, { resetLogs = false } = {}) {
+      const previousLogs = resetLogs ? [] : [...(this.match?.actions.logs ?? [])];
 
-      this.match = {
-        status: backendData.status,
-        opponent: backendData.opponent,
-        player: {
-          ...backendData.player,
-          selectedCardId: this.selectedHandId
-        },
-        field: {
-          ...backendData.field,
-          selectedCardId: this.selectedFieldId
-        },
-        actions: {
-          ...defaultActions(),
-          logs: existingLogs.slice(0, 50) // keep recent logs only
-        }
-      };
-    },
-    addLog(message, variant = 'info') {
-      if (!this.match) {
+      if (!snapshot) {
+        this.match = null;
+        this.matchInfo = null;
+        this.pendingKoikoi = null;
+        this.roundResult = null;
         return;
       }
-      this.match.actions.logs.unshift({
-        id: `log-${Date.now()}`,
-        time: new Date().toLocaleTimeString('ja-JP', { hour12: false }).slice(0, 5),
-        message,
-        variant
-      });
-      if (this.match.actions.logs.length > 50) {
-        this.match.actions.logs.pop();
-      }
-    },
-    setPhase(text) {
-      if (this.match) {
-        this.match.status.phase = text;
-      }
-    },
-    updatePlayAction({ disabled, label }) {
-      const playAction = getPlayAction(this.match);
-      if (playAction) {
-        playAction.disabled = disabled;
-        if (label) {
-          playAction.label = label;
-        }
-      }
+
+      this.matchInfo = snapshot.match ?? null;
+      this.pendingKoikoi = snapshot.pendingKoikoi ?? null;
+      this.roundResult = snapshot.roundResult ?? null;
+
+      const playerView = snapshot.player
+        ? { ...snapshot.player, selectedCardId: this.selectedHandId }
+        : null;
+      const fieldView = snapshot.field
+        ? { ...snapshot.field, selectedCardId: this.selectedFieldId }
+        : { drawPile: 0, discard: [], cards: [] };
+
+      this.match = {
+        status: snapshot.status,
+        opponent: snapshot.opponent,
+        player: playerView,
+        field: fieldView,
+        actions: defaultActions(),
+        meta: snapshot.meta ?? {}
+      };
+
+      this.match.actions.logs = previousLogs;
+      this._pushBatchLogs(snapshot.logs ?? [], { reset: resetLogs });
+      this._refreshActions();
     },
     clearSelections() {
       this.selectedHandId = null;
       this.selectedFieldId = null;
       this.selectableHandIds = [];
       this.selectableFieldIds = [];
-      if (this.match) {
+      if (this.match?.player) {
         this.match.player.selectedCardId = null;
+      }
+      if (this.match?.field) {
         this.match.field.selectedCardId = null;
       }
-      this.updatePlayAction({ disabled: true, label: '手札を出す' });
-      this.setPhase('手札選択');
+      this._refreshActions();
     },
     async selectHandCard(card) {
-      if (!this.match) {
+      if (!this.match || !card) {
+        return;
+      }
+
+      if (this.pendingKoikoi) {
+        this.addLog('コイコイの選択中は手札を操作できません。', 'warning');
+        return;
+      }
+
+      if (!this._isPlayerTurn()) {
+        this.addLog('現在はあなたの手番ではありません。', 'warning');
         return;
       }
 
@@ -128,64 +132,53 @@ export const useMatchStore = defineStore('match', {
         return;
       }
 
-      const hadFieldSelection = Boolean(this.selectedFieldId);
-
       this.selectedHandId = card.id;
-      this.match.player.selectedCardId = card.id;
-      if (!hadFieldSelection) {
-        this.selectedFieldId = null;
-        this.match.field.selectedCardId = null;
+      if (this.match.player) {
+        this.match.player.selectedCardId = card.id;
       }
-      this.selectableHandIds = [];
 
       let selectable = [];
       try {
-        selectable = await fetchSelectableFieldCards(card.id);
+        selectable = await this._loadSelectableField(card.id);
       } catch (err) {
         this.addLog('場札候補の取得に失敗しました。', 'error');
       }
 
       this.selectableFieldIds = selectable;
 
-      if (!selectable.length) {
-        this.updatePlayAction({ disabled: true, label: `${card.name} を出す` });
-        this.setPhase(`${card.name} を選択中（組み合わせ可能な場札なし）`);
-        this.addLog(`${card.name} に対応する場札がありません。`, 'error');
+      if (selectable.length === 0) {
+        this.selectedFieldId = null;
+        if (this.match.field) {
+          this.match.field.selectedCardId = null;
+        }
+      } else if (this.selectedFieldId && !selectable.includes(this.selectedFieldId)) {
+        this.selectedFieldId = null;
+        if (this.match.field) {
+          this.match.field.selectedCardId = null;
+        }
+      }
+
+      this._refreshActions();
+    },
+    async selectFieldCard(card) {
+      if (!this.match || !card) {
         return;
       }
 
-      if (hadFieldSelection && this.selectedFieldId) {
-        if (!selectable.includes(this.selectedFieldId)) {
-          this.selectedFieldId = null;
-          this.match.field.selectedCardId = null;
-          this.updatePlayAction({ disabled: true, label: `${card.name} を出す` });
-          this.setPhase(`${card.name} を選択中 - 場札を選択してください`);
-        } else {
-          const fieldCard = this.match.field.cards.find((item) => item.id === this.selectedFieldId);
-          if (fieldCard) {
-            this.updatePlayAction({
-              disabled: false,
-              label: `${card.name} と ${fieldCard.name} を出す`
-            });
-            this.setPhase(`${card.name} と ${fieldCard.name} を組み合わせます - 「手札を出す」を押してください`);
-          }
-        }
-      } else {
-        this.updatePlayAction({ disabled: true, label: `${card.name} を出す` });
-        this.setPhase(`${card.name} を選択中 - 場札を選択してください`);
+      if (this.pendingKoikoi) {
+        this.addLog('コイコイの選択中は場札を操作できません。', 'warning');
+        return;
       }
 
-      this.addLog(`${card.name} を選択しました。`, 'info');
-    },
-    async selectFieldCard(card) {
-      if (!this.match) {
+      if (!this._isPlayerTurn()) {
+        this.addLog('現在はあなたの手番ではありません。', 'warning');
         return;
       }
 
       if (!this.selectedHandId) {
         let handOptions = [];
         try {
-          handOptions = await fetchSelectableHandCards(card.id);
+          handOptions = await this._loadSelectableHand(card.id);
         } catch (err) {
           this.addLog('手札候補の取得に失敗しました。', 'error');
           return;
@@ -194,16 +187,14 @@ export const useMatchStore = defineStore('match', {
         this.selectableHandIds = handOptions;
         this.selectableFieldIds = [card.id];
         this.selectedFieldId = card.id;
-        this.match.field.selectedCardId = card.id;
+        if (this.match.field) {
+          this.match.field.selectedCardId = card.id;
+        }
 
         if (!handOptions.length) {
           this.addLog(`${card.name} に対応する手札がありません。`, 'error');
-          this.setPhase(`${card.name} を選択中（組み合わせ可能な手札なし）`);
-          return;
         }
-
-        this.addLog(`${card.name} を選択しました。`, 'info');
-        this.setPhase(`${card.name} を選択中 - 手札を選択してください`);
+        this._refreshActions();
         return;
       }
 
@@ -214,64 +205,223 @@ export const useMatchStore = defineStore('match', {
 
       if (this.selectedFieldId === card.id) {
         this.selectedFieldId = null;
-        this.match.field.selectedCardId = null;
-        this.updatePlayAction({ disabled: true });
-        this.setPhase('手札選択');
+        if (this.match.field) {
+          this.match.field.selectedCardId = null;
+        }
+        this._refreshActions();
         return;
       }
 
       this.selectedFieldId = card.id;
-      this.match.field.selectedCardId = card.id;
-      this.selectableFieldIds = [card.id];
-
-      const handCard = this.match.player.hand.find((item) => item.id === this.selectedHandId);
-      if (handCard) {
-        this.updatePlayAction({ disabled: false, label: `${handCard.name} と ${card.name} を出す` });
-        this.setPhase(`${handCard.name} と ${card.name} を組み合わせます - 「手札を出す」を押してください`);
+      if (this.match.field) {
+        this.match.field.selectedCardId = card.id;
       }
+      this._refreshActions();
     },
     async handleAction(action) {
       switch (action.key) {
         case 'play-card':
           return this.playSelectedCards();
-        case 'call-koikoi':
-          this.addLog('コイコイを宣言しました（モック）。', 'info');
-          if (this.match) {
-            this.match.status.koikoiLevel += 1;
-          }
-          return 'call-koikoi';
+        case 'koikoi-continue':
+          return this.resolveKoikoi('continue');
+        case 'koikoi-stop':
+          return this.resolveKoikoi('stop');
+        case 'start-next-round':
+          return this.startNextRound();
         case 'view-rules':
           return 'view-rules';
-        case 'end-turn':
-          this.addLog('ターンを終了しました（モック）。', 'info');
-          this.clearSelections();
-          if (this.match) {
-            this.match.status.turnLabel = this.match.status.turnLabel === 'あなたの手番'
-              ? 'CPU 花子の手番'
-              : 'あなたの手番';
-          }
-          return 'end-turn';
         default:
           return null;
       }
     },
     async playSelectedCards() {
-      if (!this.selectedHandId || !this.selectedFieldId) {
-        this.addLog('手札と場札を選択してください。', 'error');
+      if (!this.match) {
+        return;
+      }
+
+      if (this.pendingKoikoi) {
+        this.addLog('コイコイの選択中はカードを出せません。', 'error');
+        return;
+      }
+
+      if (!this._isPlayerTurn()) {
+        this.addLog('現在はあなたの手番ではありません。', 'error');
+        return;
+      }
+
+      if (!this.selectedHandId) {
+        this.addLog('手札を選択してください。', 'error');
+        return;
+      }
+
+      if (this.selectableFieldIds.length > 0 && !this.selectedFieldId) {
+        this.addLog('組み合わせる場札を選択してください。', 'error');
         return;
       }
 
       try {
-        const result = await playCards(this.selectedHandId, this.selectedFieldId);
+        const result = await playCards(this.selectedHandId, this.selectedFieldId ?? null);
         this.applyBackendState(result.state);
-        if (result.log) {
-          this.addLog(result.log.message, result.log.variant);
-        }
         this.clearSelections();
         return 'play-card';
       } catch (err) {
         this.addLog('カードのプレイに失敗しました。', 'error');
       }
+    },
+    async resolveKoikoi(decisionKey) {
+      if (!this.pendingKoikoi) {
+        this.addLog('コイコイを選択できる状態ではありません。', 'error');
+        return;
+      }
+
+      const decision = decisionKey === 'continue' ? 'continue' : 'stop';
+
+      try {
+        const result = await resolveKoikoiRemote(decision);
+        this.applyBackendState(result.state);
+        this.clearSelections();
+        return decision === 'continue' ? 'koikoi-continue' : 'koikoi-stop';
+      } catch (err) {
+        this.addLog('コイコイの処理に失敗しました。', 'error');
+      }
+    },
+    async startNextRound() {
+      try {
+        const result = await startNextRoundRemote();
+        this.applyBackendState(result.state, { resetLogs: false });
+        this.clearSelections();
+        return 'start-next-round';
+      } catch (err) {
+        this.addLog('次の局を開始できませんでした。', 'error');
+      }
+    },
+    addLog(message, variant = 'info') {
+      this._appendLog(message, variant);
+    },
+    _appendLog(message, variant = 'info') {
+      if (!this.match || !message) {
+        return;
+      }
+      this.match.actions.logs.unshift(createLogEntry(message, variant));
+      if (this.match.actions.logs.length > MAX_LOGS) {
+        this.match.actions.logs.length = MAX_LOGS;
+      }
+    },
+    _pushBatchLogs(logs = [], { reset = false } = {}) {
+      if (!this.match) {
+        return;
+      }
+      if (reset) {
+        this.match.actions.logs = [];
+      }
+      for (const entry of logs) {
+        if (!entry || !entry.message) {
+          continue;
+        }
+        this._appendLog(entry.message, entry.variant ?? 'info');
+      }
+    },
+    _refreshActions() {
+      if (!this.match) {
+        return;
+      }
+
+      if (this.match.player) {
+        this.match.player.selectedCardId = this.selectedHandId ?? null;
+      }
+      if (this.match.field) {
+        this.match.field.selectedCardId = this.selectedFieldId ?? null;
+      }
+
+      const primary = [];
+      const secondary = [
+        { key: 'view-rules', label: 'ルールを見る', variant: 'secondary', disabled: false }
+      ];
+
+      const roundFinished = Boolean(this.roundResult);
+      const matchFinished = Boolean(this.matchInfo?.isFinished);
+      const pending = this.pendingKoikoi;
+
+      if (pending) {
+        if (pending.playerId === this.match.player?.id) {
+          primary.push({ key: 'koikoi-continue', label: 'コイコイする', variant: 'warning', disabled: false });
+          primary.push({ key: 'koikoi-stop', label: '上がる', variant: 'success', disabled: false });
+        } else {
+          const label = `${pending.playerName ?? '相手'}がコイコイ判定中`;
+          primary.push({ key: 'koikoi-wait', label, variant: 'secondary', disabled: true });
+        }
+      } else if (roundFinished) {
+        if (matchFinished) {
+          primary.push({ key: 'match-complete', label: '対局終了', variant: 'secondary', disabled: true });
+        } else {
+          primary.push({ key: 'start-next-round', label: '次の局を始める', variant: 'primary', disabled: false });
+        }
+      } else {
+        const canPlay = this._canPlayCard();
+        const label = this._buildPlayLabel();
+        primary.push({ key: 'play-card', label, variant: 'primary', disabled: !canPlay });
+      }
+
+      this.match.actions.primary = primary;
+      this.match.actions.secondary = secondary;
+    },
+    _canPlayCard() {
+      if (!this.match || !this.match.player) {
+        return false;
+      }
+      if (this.pendingKoikoi || this.roundResult) {
+        return false;
+      }
+      if (!this._isPlayerTurn()) {
+        return false;
+      }
+      if (!this.selectedHandId) {
+        return false;
+      }
+      if (this.selectableFieldIds.length > 0 && !this.selectedFieldId) {
+        return false;
+      }
+      return true;
+    },
+    _buildPlayLabel() {
+      if (!this.match?.player || !this.selectedHandId) {
+        return '手札を出す';
+      }
+
+      const handCard = this._getHandCardById(this.selectedHandId);
+      if (!handCard) {
+        return '手札を出す';
+      }
+
+      if (this.selectableFieldIds.length === 0) {
+        return `${handCard.name} を場に出す`;
+      }
+
+      if (!this.selectedFieldId) {
+        return `${handCard.name} を出す`;
+      }
+
+      const fieldCard = this._getFieldCardById(this.selectedFieldId);
+      if (!fieldCard) {
+        return `${handCard.name} を出す`;
+      }
+
+      return `${handCard.name} と ${fieldCard.name} を出す`;
+    },
+    _getHandCardById(cardId) {
+      return this.match?.player?.hand?.find((card) => card.id === cardId) ?? null;
+    },
+    _getFieldCardById(cardId) {
+      return this.match?.field?.cards?.find((card) => card.id === cardId) ?? null;
+    },
+    _isPlayerTurn() {
+      return this.match?.meta?.isPlayerTurn === true;
+    },
+    async _loadSelectableField(cardId) {
+      return fetchSelectableFieldCards(cardId);
+    },
+    async _loadSelectableHand(cardId) {
+      return fetchSelectableHandCards(cardId);
     }
   }
 });

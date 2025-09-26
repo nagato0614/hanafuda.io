@@ -2,6 +2,8 @@ import { Field } from './field.js';
 import { PlayerState } from './playerState.js';
 import { Deck } from './deck.js';
 import { cloneCardCollection } from './utils.js';
+import { YakuEvaluator } from './YakuEvaluator.js';
+import { computePlayerScore, buildRoundPoints } from './ScoreCalculator.js';
 
 const DEFAULT_HAND_SIZE = 8;
 const DEFAULT_FIELD_SIZE = 8;
@@ -22,6 +24,11 @@ export class RoundState {
     this.history = [];
     this.drawnCardForTurn = null;
     this.redealCount = 0;
+    this.pendingKoikoi = null;
+    this.roundResult = null;
+
+    this.playerStatus = new Map();
+    this.playerYaku = new Map();
 
     this._initialiseRound();
   }
@@ -57,6 +64,8 @@ export class RoundState {
       this.field = new Field();
       this.currentPlayerId = this.playerOrder[0] ?? null;
 
+      this._resetPlayerStates();
+
       this._dealInitialCards();
 
       const needsRedeal = this._requiresRedeal();
@@ -72,6 +81,18 @@ export class RoundState {
   _createDeck(attempt) {
     const seed = this._resolveSeedForAttempt(attempt);
     return this._deckFactory({ seed });
+  }
+
+  _resetPlayerStates() {
+    this.pendingKoikoi = null;
+    this.roundResult = null;
+    this.playerStatus = new Map(this.playerOrder.map((playerId) => [playerId, {
+      koikoiDeclared: false,
+      koikoiLevel: 0,
+      koikoiLocked: false,
+      totalPoints: 0
+    }]));
+    this.playerYaku = new Map(this.playerOrder.map((playerId) => [playerId, []]));
   }
 
   _resolveSeedForAttempt(attempt) {
@@ -135,6 +156,10 @@ export class RoundState {
       return [];
     }
 
+    if (this.pendingKoikoi) {
+      return [];
+    }
+
     if (player.hand.length === 0 && this.deck.remaining > 0) {
       const fallbackCard = this.deck.draw();
       if (fallbackCard) {
@@ -180,6 +205,10 @@ export class RoundState {
       throw new Error('It is not the specified player turn.');
     }
 
+    if (this.pendingKoikoi && this.pendingKoikoi.playerId === move.playerId) {
+      throw new Error('Koikoi decision pending for this player.');
+    }
+
     const player = this.getPlayer(move.playerId);
     const playedCard = player.removeHandCard(move.handCardId);
 
@@ -223,18 +252,59 @@ export class RoundState {
       }
     }
 
+    const captureSummary = {
+      capturedFromHand: cloneCardCollection(capturedFromHand),
+      capturedFromDeck: cloneCardCollection(capturedFromDeck)
+    };
+
+    const evaluation = this._updatePlayerAfterCapture(player.id);
+    const status = this.playerStatus.get(player.id);
+
+    const koikoiPrompt = evaluation.newYaku.length > 0;
+    if (koikoiPrompt) {
+      this.pendingKoikoi = {
+        playerId: player.id,
+        newYaku: evaluation.newYaku.map((item) => ({ ...item })),
+        allYaku: evaluation.allYaku.map((item) => ({ ...item })),
+        score: { ...evaluation.score }
+      };
+      if (status && status.koikoiDeclared && status.koikoiLocked && evaluation.newYaku.length > 0) {
+        status.koikoiLocked = false;
+      }
+    }
+
     this.turnCount += 1;
+    this.drawnCardForTurn = null;
 
     this.history.push({
       type: 'turn',
       playerId: player.id,
       handCardId: move.handCardId,
-      capturedFromHand: cloneCardCollection(capturedFromHand),
-      capturedFromDeck: cloneCardCollection(capturedFromDeck)
+      capturedFromHand: captureSummary.capturedFromHand,
+      capturedFromDeck: captureSummary.capturedFromDeck,
+      newYakuKeys: evaluation.newYaku.map((item) => item.key),
+      totalPoints: status?.totalPoints ?? 0
     });
 
-    this.drawnCardForTurn = null;
-    this._advanceTurn();
+    if (!this.roundResult && this._shouldFinalizeNaturally()) {
+      this._finalizeRound({ reason: 'natural-complete' });
+    }
+
+    if (!this.roundResult) {
+      this._advanceTurn();
+    }
+
+    return {
+      playerId: player.id,
+      ...captureSummary,
+      newYaku: evaluation.newYaku,
+      allYaku: evaluation.allYaku,
+      score: evaluation.score,
+      koikoiPrompt,
+      pendingKoikoi: this.pendingKoikoi,
+      roundEnded: Boolean(this.roundResult),
+      result: this.roundResult
+    };
   }
 
   _advanceTurn() {
@@ -259,7 +329,187 @@ export class RoundState {
     this.currentPlayerId = null;
   }
 
+  _aggregateOpponentStatus(playerId) {
+    const others = this.playerOrder.filter((id) => id !== playerId);
+    if (others.length === 0) {
+      return { koikoiLevel: 0, koikoiDeclared: false };
+    }
+
+    let koikoiLevel = 0;
+    let koikoiDeclared = false;
+    for (const otherId of others) {
+      const status = this.playerStatus.get(otherId);
+      if (!status) {
+        continue;
+      }
+      koikoiLevel += status.koikoiLevel ?? 0;
+      koikoiDeclared = koikoiDeclared || Boolean(status.koikoiDeclared);
+    }
+    return {
+      koikoiLevel,
+      koikoiDeclared
+    };
+  }
+
+  _updatePlayerAfterCapture(playerId) {
+    const player = this.getPlayer(playerId);
+    const previousYaku = this.playerYaku.get(playerId) ?? [];
+    const previousKeys = new Set(previousYaku.map((item) => item.key));
+    const yakuList = YakuEvaluator.evaluate(player.captured).map((item) => ({ ...item }));
+    const newYaku = yakuList.filter((item) => !previousKeys.has(item.key));
+
+    this.playerYaku.set(playerId, yakuList);
+
+    const status = this.playerStatus.get(playerId);
+    if (status) {
+      status.hasYaku = yakuList.length > 0;
+      const opponentStatus = this._aggregateOpponentStatus(playerId);
+      const score = computePlayerScore({
+        yakuList,
+        selfStatus: status,
+        opponentStatus
+      });
+      status.totalPoints = score.total;
+      if (status.koikoiDeclared && status.koikoiLocked && newYaku.length > 0) {
+        status.koikoiLocked = false;
+      }
+      return { allYaku: yakuList, newYaku, score };
+    }
+
+    return {
+      allYaku: yakuList,
+      newYaku,
+      score: { base: 0, multiplier: 1, total: 0 }
+    };
+  }
+
+  _shouldFinalizeNaturally() {
+    if (this.roundResult || this.pendingKoikoi) {
+      return false;
+    }
+    if (this.deck.remaining > 0) {
+      return false;
+    }
+    return this.players.every((player) => player.hand.length === 0);
+  }
+
+  _snapshotPlayerStatus() {
+    return this.playerOrder.map((playerId) => {
+      const status = this.playerStatus.get(playerId) ?? {};
+      return {
+        playerId,
+        koikoiDeclared: Boolean(status.koikoiDeclared),
+        koikoiLevel: status.koikoiLevel ?? 0,
+        koikoiLocked: Boolean(status.koikoiLocked),
+        totalPoints: status.totalPoints ?? 0,
+        hasYaku: Boolean(status.hasYaku)
+      };
+    });
+  }
+
+  _finalizeRound({ reason, winnerId = null } = {}) {
+    if (this.roundResult) {
+      return this.roundResult;
+    }
+
+    const playerIds = [...this.playerOrder];
+
+    if (!winnerId) {
+      const totals = playerIds.map((playerId) => {
+        const status = this.playerStatus.get(playerId) ?? {};
+        const opponentStatus = this._aggregateOpponentStatus(playerId);
+        const score = computePlayerScore({
+          yakuList: this.playerYaku.get(playerId) ?? [],
+          selfStatus: status,
+          opponentStatus
+        });
+        return { playerId, score };
+      });
+
+      const positives = totals.filter((item) => item.score.total > 0);
+      if (positives.length > 0) {
+        const sorted = [...positives].sort((a, b) => b.score.total - a.score.total);
+        const top = sorted[0];
+        const second = sorted[1];
+        if (!second || top.score.total > second.score.total) {
+          winnerId = top.playerId;
+        }
+      }
+    }
+
+    const points = buildRoundPoints({
+      playerIds,
+      yakuMap: this.playerYaku,
+      statusMap: this.playerStatus,
+      winnerId
+    });
+
+    this.roundResult = {
+      reason,
+      winnerId: winnerId ?? null,
+      points: Array.from(points.entries()).map(([playerId, value]) => ({ playerId, points: value })),
+      yaku: playerIds.map((playerId) => ({
+        playerId,
+        list: (this.playerYaku.get(playerId) ?? []).map((item) => ({ ...item }))
+      })),
+      statuses: this._snapshotPlayerStatus()
+    };
+
+    this.pendingKoikoi = null;
+    this.currentPlayerId = null;
+    this.history.push({ type: 'round-end', result: this.roundResult });
+    return this.roundResult;
+  }
+
+  handleKoikoiDecision(playerId, decision) {
+    if (!this.pendingKoikoi || this.pendingKoikoi.playerId !== playerId) {
+      throw new Error('No Koikoi decision pending for this player.');
+    }
+
+    const status = this.playerStatus.get(playerId);
+    if (!status) {
+      throw new Error(`Unknown player for Koikoi decision: ${playerId}`);
+    }
+
+    if (decision === 'continue') {
+      status.koikoiDeclared = true;
+      status.koikoiLevel = (status.koikoiLevel ?? 0) + 1;
+      status.koikoiLocked = true;
+      const response = {
+        playerId,
+        decision,
+        result: null,
+        level: status.koikoiLevel
+      };
+      this.history.push({ type: 'koikoi', playerId, decision, level: status.koikoiLevel });
+      this.pendingKoikoi = null;
+      return response;
+    }
+
+    if (decision === 'stop') {
+      status.koikoiLocked = false;
+      const result = this._finalizeRound({ reason: 'player-stop', winnerId: playerId });
+      const response = {
+        playerId,
+        decision,
+        result,
+        level: status.koikoiLevel ?? 0
+      };
+      this.history.push({ type: 'koikoi', playerId, decision, level: status.koikoiLevel ?? 0 });
+      this.pendingKoikoi = null;
+      return response;
+    }
+
+    throw new Error(`Unknown Koikoi decision: ${decision}`);
+  }
+
   isComplete() {
+    if (this.roundResult) {
+      return true;
+    }
+    if (this.pendingKoikoi) {
+      return false;
+    }
     if (this.deck.remaining > 0) {
       return false;
     }
@@ -273,7 +523,33 @@ export class RoundState {
       field: this.field.snapshot(),
       players: this.players.map((player) => player.snapshot()),
       turnCount: this.turnCount,
-      isComplete: this.isComplete()
+      isComplete: this.isComplete(),
+      pendingKoikoi: this.pendingKoikoi
+        ? {
+            playerId: this.pendingKoikoi.playerId,
+            newYaku: this.pendingKoikoi.newYaku.map((item) => ({ ...item })),
+            allYaku: this.pendingKoikoi.allYaku.map((item) => ({ ...item })),
+            score: { ...this.pendingKoikoi.score }
+          }
+        : null,
+      playerStatus: this._snapshotPlayerStatus(),
+      playerYaku: this.playerOrder.map((playerId) => ({
+        playerId,
+        list: (this.playerYaku.get(playerId) ?? []).map((item) => ({ ...item }))
+      })),
+      roundResult: this.roundResult
+        ? {
+            reason: this.roundResult.reason,
+            winnerId: this.roundResult.winnerId,
+            points: this.roundResult.points.map((entry) => ({ ...entry })),
+            yaku: this.roundResult.yaku.map((entry) => ({
+              playerId: entry.playerId,
+              list: entry.list.map((item) => ({ ...item }))
+            })),
+            statuses: this.roundResult.statuses.map((status) => ({ ...status }))
+          }
+        : null,
+      redealCount: this.redealCount
     };
   }
 }

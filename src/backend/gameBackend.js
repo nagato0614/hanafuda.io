@@ -18,6 +18,14 @@ export async function playCards(handCardId, fieldCardId) {
   return gameState.playCards(handCardId, fieldCardId);
 }
 
+export async function resolveKoikoi(decision) {
+  return gameState.resolveKoikoi(decision);
+}
+
+export async function startNextRound() {
+  return gameState.startNextRound();
+}
+
 export function resetBackendState(options = {}) {
   gameState.reset(options);
 }

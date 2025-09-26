@@ -112,9 +112,7 @@ function groupCapturedCards(cards = []) {
     buckets.get(key).cards.push(buildCardView(card));
   });
 
-  return CATEGORY_ORDER
-    .filter((key) => buckets.has(key))
-    .map((key) => buckets.get(key));
+  return CATEGORY_ORDER.filter((key) => buckets.has(key)).map((key) => buckets.get(key));
 }
 
 function calculateCapturedPoints(cards = []) {
@@ -125,11 +123,21 @@ function findCardName(cardId) {
   return cardDefinitionsById[cardId]?.name ?? cardId;
 }
 
+function formatPointSummary(entries = []) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return '';
+  }
+  return entries
+    .map((entry) => `${entry.name ?? entry.playerId}: ${entry.points}点`)
+    .join(' / ');
+}
+
 export class GameState {
   constructor(options = {}) {
     this._config = { ...options };
     this.matchId = options.matchId ?? 'local-match';
     this._service = new GameService(options);
+    this._logQueue = [];
     this._ensureMatchStarted();
   }
 
@@ -137,32 +145,133 @@ export class GameState {
     this._config = { ...options };
     this.matchId = options.matchId ?? 'local-match';
     this._service = new GameService(options);
+    this._logQueue = [];
     this._ensureMatchStarted();
   }
 
   _ensureMatchStarted() {
-    if (!this._service.round) {
-      this._service.startMatch(this._config);
+    if (!this._service.matchState || !this._service.round) {
+      const result = this._service.startMatch(this._config);
+      this._appendLogsFromEvents(result?.events ?? []);
     }
   }
 
-  _getRoundSnapshot() {
+  _getServiceSnapshot() {
     this._ensureMatchStarted();
-    const snapshot = this._service.getSnapshot();
+    return this._service.getSnapshot();
+  }
+
+  _getRoundSnapshot() {
+    const snapshot = this._getServiceSnapshot();
     return snapshot?.round ?? null;
   }
 
-  _buildPlayerView(playerSnapshot, { includeHand = true } = {}) {
-    const capturedPoints = calculateCapturedPoints(playerSnapshot.captured);
+  snapshot() {
+    const base = this._collectSnapshot();
+    if (!base) {
+      return null;
+    }
+    return {
+      ...base,
+      logs: this._drainLogs()
+    };
+  }
+
+  _collectSnapshot() {
+    const serviceSnapshot = this._getServiceSnapshot();
+    if (!serviceSnapshot) {
+      return null;
+    }
+
+    const roundSnapshot = serviceSnapshot.round;
+    const matchSnapshot = serviceSnapshot.match ?? null;
+
+    if (!roundSnapshot) {
+      return {
+        matchId: this.matchId,
+        status: {
+          monthLabel: '',
+          phase: '対局終了',
+          turnLabel: '',
+          timeRemaining: '--',
+          koikoiLevel: 0,
+          currentRound: matchSnapshot?.currentRound ?? matchSnapshot?.totalRounds ?? 0,
+          totalRounds: matchSnapshot?.totalRounds ?? 0
+        },
+        player: null,
+        opponent: null,
+        field: { drawPile: 0, discard: [], cards: [] },
+        match: this._buildMatchInfo(matchSnapshot),
+        pendingKoikoi: null,
+        roundResult: matchSnapshot?.history?.at(-1)?.result ?? null
+      };
+    }
+
+    const playersById = new Map(roundSnapshot.players.map((player) => [player.id, player]));
+    const statusById = new Map((roundSnapshot.playerStatus ?? []).map((status) => [status.playerId, status]));
+    const yakuById = new Map((roundSnapshot.playerYaku ?? []).map((entry) => [entry.playerId, entry.list ?? []]));
+
+    const totalsById = new Map((matchSnapshot?.totals ?? []).map((entry) => [entry.playerId, entry.points]));
+
+    const humanPlayer = playersById.get('player') ?? roundSnapshot.players[0];
+    const opponent = roundSnapshot.players.find((player) => player.id !== humanPlayer.id) ?? humanPlayer;
+
+    const playerView = this._buildPlayerView(humanPlayer, {
+      status: statusById.get(humanPlayer.id),
+      totalScore: totalsById.get(humanPlayer.id) ?? 0,
+      yakuList: yakuById.get(humanPlayer.id) ?? [],
+      includeHand: true
+    });
+
+    const opponentView = this._buildPlayerView(opponent, {
+      status: statusById.get(opponent.id),
+      totalScore: totalsById.get(opponent.id) ?? 0,
+      yakuList: yakuById.get(opponent.id) ?? [],
+      includeHand: false
+    });
+
+    const status = this._buildStatus({
+      roundSnapshot,
+      playerView,
+      opponentView,
+      statusById,
+      matchSnapshot
+    });
+
+    const meta = {
+      currentPlayerId: roundSnapshot.currentPlayerId,
+      isPlayerTurn: !roundSnapshot.pendingKoikoi && roundSnapshot.currentPlayerId === playerView.id,
+      matchFinished: Boolean(matchSnapshot?.isFinished),
+      pendingKoikoiPlayerId: roundSnapshot.pendingKoikoi?.playerId ?? null
+    };
+
+    return {
+      matchId: this.matchId,
+      status,
+      player: playerView,
+      opponent: opponentView,
+      field: this._buildFieldView(roundSnapshot),
+      match: this._buildMatchInfo(matchSnapshot),
+      pendingKoikoi: this._buildPendingKoikoi(roundSnapshot.pendingKoikoi),
+      roundResult: this._buildRoundResultInfo(roundSnapshot.roundResult),
+      meta
+    };
+  }
+
+  _buildPlayerView(playerSnapshot, { status = {}, totalScore = 0, yakuList = [], includeHand = true } = {}) {
+    const roundScore = status?.totalPoints ?? calculateCapturedPoints(playerSnapshot.captured);
     return {
       id: playerSnapshot.id,
       name: playerSnapshot.name,
       roleLabel: playerSnapshot.id === 'player' ? 'あなた' : 'CPU',
       capturedTotal: playerSnapshot.captured.length,
-      roundScore: capturedPoints,
-      totalScore: capturedPoints,
+      roundScore,
+      totalScore,
+      koikoiLevel: status?.koikoiLevel ?? 0,
+      koikoiDeclared: Boolean(status?.koikoiDeclared),
       hand: includeHand ? playerSnapshot.hand.map((card) => buildCardView(card)) : [],
-      captured: groupCapturedCards(playerSnapshot.captured)
+      captured: groupCapturedCards(playerSnapshot.captured),
+      yaku: yakuList.map((item) => ({ ...item }))
     };
   }
 
@@ -175,9 +284,140 @@ export class GameState {
     };
   }
 
+  _buildStatus({ roundSnapshot, playerView, opponentView, statusById, matchSnapshot }) {
+    const playersById = new Map([
+      [playerView.id, { id: playerView.id, name: playerView.name }],
+      [opponentView.id, { id: opponentView.id, name: opponentView.name }]
+    ]);
+
+    const pending = roundSnapshot.pendingKoikoi;
+    const roundResult = roundSnapshot.roundResult;
+
+    let phase = '';
+    let turnLabel = '';
+
+    if (roundResult) {
+      phase = '局終了';
+      if (roundResult.winnerId) {
+        const winner = playersById.get(roundResult.winnerId) ?? { name: roundResult.winnerId };
+        turnLabel = `${winner.name} が上がりました`;
+      } else {
+        turnLabel = '流局しました';
+      }
+    } else if (pending) {
+      const actor = playersById.get(pending.playerId) ?? { name: pending.playerId };
+      if (pending.playerId === playerView.id) {
+        phase = 'コイコイ選択中';
+        turnLabel = 'コイコイするか選択してください';
+      } else {
+        phase = `${actor.name} がコイコイ判定中`;
+        turnLabel = `${actor.name}の手番`;
+      }
+    } else {
+      const currentPlayer = playersById.get(roundSnapshot.currentPlayerId);
+      phase = currentPlayer?.id === playerView.id ? '手札選択' : currentPlayer ? `${currentPlayer.name}の手番` : '待機中';
+      if (currentPlayer) {
+        turnLabel = currentPlayer.id === playerView.id ? 'あなたの手番' : `${currentPlayer.name}の手番`;
+      } else {
+        turnLabel = '';
+      }
+    }
+
+    return {
+      monthLabel: this._deriveMonthLabel(roundSnapshot),
+      phase,
+      turnLabel,
+      timeRemaining: '--',
+      koikoiLevel: statusById.get(playerView.id)?.koikoiLevel ?? 0,
+      currentRound: matchSnapshot?.currentRound ?? 1,
+      totalRounds: matchSnapshot?.totalRounds ?? 1
+    };
+  }
+
+  _buildMatchInfo(matchSnapshot) {
+    if (!matchSnapshot) {
+      return {
+        totalRounds: 0,
+        completedRounds: 0,
+        currentRound: 0,
+        totals: [],
+        history: [],
+        isFinished: false
+      };
+    }
+
+    const totals = (matchSnapshot.totals ?? []).map((entry) => ({
+      playerId: entry.playerId,
+      name: this._getPlayerDisplayName(entry.playerId),
+      points: entry.points
+    }));
+
+    return {
+      totalRounds: matchSnapshot.totalRounds,
+      completedRounds: matchSnapshot.completedRounds,
+      currentRound: matchSnapshot.currentRound,
+      totals,
+      history: (matchSnapshot.history ?? []).map((entry) => ({
+        round: entry.round,
+        result: {
+          reason: entry.result.reason,
+          winnerId: entry.result.winnerId,
+          winnerName: entry.result.winnerId ? this._getPlayerDisplayName(entry.result.winnerId) : null,
+          points: entry.result.points.map((item) => ({
+            playerId: item.playerId,
+            name: this._getPlayerDisplayName(item.playerId),
+            points: item.points
+          })),
+          statuses: entry.result.statuses.map((status) => ({ ...status })),
+          yaku: entry.result.yaku.map((item) => ({
+            playerId: item.playerId,
+            name: this._getPlayerDisplayName(item.playerId),
+            list: item.list.map((yaku) => ({ ...yaku }))
+          }))
+        }
+      })),
+      isFinished: Boolean(matchSnapshot.isFinished)
+    };
+  }
+
+  _buildPendingKoikoi(pending) {
+    if (!pending) {
+      return null;
+    }
+    return {
+      playerId: pending.playerId,
+      playerName: this._getPlayerDisplayName(pending.playerId),
+      newYaku: pending.newYaku.map((item) => ({ ...item })),
+      allYaku: pending.allYaku.map((item) => ({ ...item })),
+      score: { ...pending.score }
+    };
+  }
+
+  _buildRoundResultInfo(result) {
+    if (!result) {
+      return null;
+    }
+    return {
+      reason: result.reason,
+      winnerId: result.winnerId,
+      winnerName: result.winnerId ? this._getPlayerDisplayName(result.winnerId) : null,
+      points: result.points.map((entry) => ({
+        playerId: entry.playerId,
+        name: this._getPlayerDisplayName(entry.playerId),
+        points: entry.points
+      })),
+      statuses: result.statuses.map((status) => ({ ...status })),
+      yaku: result.yaku.map((entry) => ({
+        playerId: entry.playerId,
+        name: this._getPlayerDisplayName(entry.playerId),
+        list: entry.list.map((yaku) => ({ ...yaku }))
+      }))
+    };
+  }
+
   _deriveMonthLabel(roundSnapshot) {
     const fallbackMonth = 1;
-    const sampleCard = roundSnapshot.field.cards?.[0];
+    const sampleCard = roundSnapshot.field?.cards?.[0];
     const month = sampleCard?.month ?? fallbackMonth;
     const kanji = MONTH_KANJI_LABELS[month];
     const english = MONTH_LABELS[month];
@@ -190,57 +430,9 @@ export class GameState {
     return `${month}月`;
   }
 
-  _buildStatus(roundSnapshot, playersById) {
-    const currentPlayer = playersById.get(roundSnapshot.currentPlayerId);
-    const monthLabel = this._deriveMonthLabel(roundSnapshot);
-    const phase = currentPlayer?.id === 'player' ? '手札選択' : currentPlayer ? `${currentPlayer.name}の手番` : '待機中';
-    const turnLabel = currentPlayer
-      ? currentPlayer.id === 'player'
-        ? 'あなたの手番'
-        : `${currentPlayer.name}の手番`
-      : '';
-
-    return {
-      monthLabel,
-      phase,
-      turnLabel,
-      timeRemaining: '--',
-      koikoiLevel: 1
-    };
-  }
-
-  snapshot() {
-    const roundSnapshot = this._getRoundSnapshot();
-    if (!roundSnapshot) {
-      return null;
-    }
-
-    const playerMap = new Map(roundSnapshot.players.map((player) => [player.id, player]));
-
-    const selfPlayerSnapshot = playerMap.get('player') ?? roundSnapshot.players[0];
-    const opponentSnapshot = roundSnapshot.players.find((player) => player.id !== selfPlayerSnapshot.id) ?? selfPlayerSnapshot;
-
-    const playerView = this._buildPlayerView(selfPlayerSnapshot, { includeHand: true });
-    const opponentView = this._buildPlayerView(opponentSnapshot, { includeHand: false });
-
-    const status = this._buildStatus(roundSnapshot, new Map([
-      [playerView.id, { id: playerView.id, name: playerView.name }],
-      [opponentView.id, { id: opponentView.id, name: opponentView.name }]
-    ]));
-
-    return {
-      matchId: this.matchId,
-      status,
-      player: playerView,
-      opponent: opponentView,
-      field: this._buildFieldView(roundSnapshot),
-      logs: []
-    };
-  }
-
   getSelectableFieldCards(handCardId) {
     const roundSnapshot = this._getRoundSnapshot();
-    if (!roundSnapshot) {
+    if (!roundSnapshot || roundSnapshot.pendingKoikoi) {
       return [];
     }
     const player = roundSnapshot.players.find((item) => item.id === 'player');
@@ -255,7 +447,7 @@ export class GameState {
 
   getSelectableHandCards(fieldCardId) {
     const roundSnapshot = this._getRoundSnapshot();
-    if (!roundSnapshot) {
+    if (!roundSnapshot || roundSnapshot.pendingKoikoi) {
       return [];
     }
     const player = roundSnapshot.players.find((item) => item.id === 'player');
@@ -275,6 +467,10 @@ export class GameState {
     const roundSnapshot = this._getRoundSnapshot();
     if (!roundSnapshot) {
       throw new Error('ラウンドが開始されていません。');
+    }
+
+    if (roundSnapshot.pendingKoikoi) {
+      throw new Error('コイコイの選択が保留中です。');
     }
 
     const playerId = roundSnapshot.currentPlayerId;
@@ -297,39 +493,211 @@ export class GameState {
       throw new Error('指定したカードの組み合わせは無効です。');
     }
 
-    this._service.playCard(targetMove);
+    const result = this._service.playCard(targetMove);
+    this._appendLogsFromEvents(result.events);
 
-    const lastEvent = this._service.round.history[this._service.round.history.length - 1] ?? null;
-    const log = this._buildLogFromEvent(lastEvent);
-
+    const state = this.snapshot();
     return {
-      state: this.snapshot(),
-      log
+      state,
+      logs: state.logs
     };
   }
 
-  _buildLogFromEvent(event) {
-    if (!event) {
-      return null;
-    }
-
-    const capturedCards = [
-      ...(event.capturedFromHand ?? []),
-      ...(event.capturedFromDeck ?? [])
-    ];
-
-    if (capturedCards.length > 0) {
-      const names = [...new Set(capturedCards.map((card) => card.name))];
-      return {
-        message: `${names.join('、')} を獲得しました。`,
-        variant: 'success'
-      };
-    }
-
-    const cardName = findCardName(event.handCardId);
+  startNextRound() {
+    const result = this._service.startNextRound();
+    this._appendLogsFromEvents(result.events);
+    const state = this.snapshot();
     return {
-      message: `${cardName} を場に出しました。`,
-      variant: 'info'
+      state,
+      logs: state.logs
     };
+  }
+
+  resolveKoikoi(decision) {
+    const normalized = decision === 'continue' ? 'continue' : 'stop';
+    const result = this._service.resolveKoikoi(normalized);
+    this._appendLogsFromEvents(result.events);
+    const state = this.snapshot();
+    return {
+      state,
+      logs: state.logs
+    };
+  }
+
+  _appendLogsFromEvents(events = []) {
+    if (!Array.isArray(events) || events.length === 0) {
+      return;
+    }
+    events
+      .flatMap((event) => this._buildLogsFromEvent(event))
+      .filter(Boolean)
+      .forEach((entry) => this._enqueueLog(entry));
+  }
+
+  _buildLogsFromEvent(event) {
+    if (!event) {
+      return [];
+    }
+
+    switch (event.type) {
+      case 'round-start': {
+        const firstName = this._getPlayerDisplayName(event.firstPlayerId);
+        const segments = [`第${event.round}局を開始`];
+        if (event.redealCount) {
+          segments.push(`再配札 ${event.redealCount} 回`);
+        }
+        segments.push(`先攻: ${firstName}`);
+        return [
+          {
+            message: segments.join(' / '),
+            variant: 'info'
+          }
+        ];
+      }
+      case 'turn': {
+        return this._buildTurnLogs(event);
+      }
+      case 'koikoi-prompt': {
+        const actorName = this._getPlayerDisplayName(event.playerId);
+        const yakuNames = this._describeYakuList(event.pending?.newYaku ?? []);
+        const message = yakuNames
+          ? `${actorName} が ${yakuNames} を成立。コイコイしますか？`
+          : `${actorName} が役を成立させました。コイコイしますか？`;
+        return [
+          {
+            message,
+            variant: 'warning'
+          }
+        ];
+      }
+      case 'koikoi-decision': {
+        const actorName = this._getPlayerDisplayName(event.playerId);
+        if (event.decision === 'continue') {
+          return [
+            {
+              message: `${actorName} はコイコイを宣言しました（${event.level}回目）`,
+              variant: 'warning'
+            }
+          ];
+        }
+        const points = event.result?.points ?? [];
+        const summary = formatPointSummary(
+          points.map((entry) => ({
+            ...entry,
+            name: this._getPlayerDisplayName(entry.playerId)
+          }))
+        );
+        return [
+          {
+            message: `${actorName} は上がりを宣言しました。${summary}`.trim(),
+            variant: 'success'
+          }
+        ];
+      }
+      case 'round-end': {
+        const winnerName = event.result.winnerId
+          ? this._getPlayerDisplayName(event.result.winnerId)
+          : null;
+        const summary = formatPointSummary(
+          event.result.points.map((entry) => ({
+            ...entry,
+            name: this._getPlayerDisplayName(entry.playerId)
+          }))
+        );
+        const message = winnerName
+          ? `第${event.roundNumber ?? ''}局終了：${winnerName} が ${summary}`
+          : `第${event.roundNumber ?? ''}局終了：流局 ${summary}`;
+        return [
+          {
+            message: message.trim(),
+            variant: winnerName ? 'success' : 'info'
+          }
+        ];
+      }
+      case 'match-end': {
+        const summary = formatPointSummary(
+          (event.totals ?? []).map((entry) => ({
+            ...entry,
+            name: this._getPlayerDisplayName(entry.playerId)
+          }))
+        );
+        return [
+          {
+            message: summary ? `全局終了。最終得点 ${summary}` : '全局終了',
+            variant: 'success'
+          }
+        ];
+      }
+      default:
+        return [];
+    }
+  }
+
+  _buildTurnLogs(event) {
+    const actorName = this._getPlayerDisplayName(event.playerId);
+    const result = event.result ?? {};
+    const captured = [
+      ...(result.capturedFromHand ?? []),
+      ...(result.capturedFromDeck ?? [])
+    ];
+    const logs = [];
+
+    if (captured.length > 0) {
+      logs.push({
+        message: `${actorName} が ${this._describeCards(captured)} を獲得しました。`,
+        variant: 'success'
+      });
+    } else if (event.move?.handCardId) {
+      logs.push({
+        message: `${actorName} が ${findCardName(event.move.handCardId)} を場に出しました。`,
+        variant: 'info'
+      });
+    }
+
+    const newYaku = result.newYaku ?? [];
+    for (const yaku of newYaku) {
+      logs.push({
+        message: `${actorName} が 役「${yaku.name}」を成立 (+${yaku.points}点)`,
+        variant: 'success'
+      });
+    }
+
+    return logs;
+  }
+
+  _describeCards(cards = []) {
+    if (!cards.length) {
+      return '';
+    }
+    const names = cards.map((card) => card.name ?? findCardName(card.id));
+    return [...new Set(names)].join('、');
+  }
+
+  _describeYakuList(yakuList = []) {
+    if (!yakuList.length) {
+      return '';
+    }
+    return yakuList.map((item) => item.name).join(' / ');
+  }
+
+  _getPlayerDisplayName(playerId) {
+    const player = (this._service.players ?? []).find((item) => item.id === playerId);
+    return player?.name ?? playerId;
+  }
+
+  _enqueueLog(entry) {
+    if (!entry || !entry.message) {
+      return;
+    }
+    this._logQueue.push({
+      message: entry.message,
+      variant: entry.variant ?? 'info'
+    });
+  }
+
+  _drainLogs() {
+    const logs = [...this._logQueue];
+    this._logQueue = [];
+    return logs;
   }
 }
