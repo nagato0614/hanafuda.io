@@ -271,7 +271,8 @@ export class CardSpriteManager {
     entry.container.removeAllListeners();
     entry.interactive = interactive;
 
-    entry.container.setInteractive({ useHandCursor: interactive });
+    const hitArea = new Phaser.Geom.Rectangle(-CARD_WIDTH / 2, -CARD_HEIGHT / 2, CARD_WIDTH, CARD_HEIGHT);
+    entry.container.setInteractive(hitArea, Phaser.Geom.Rectangle.Contains, { useHandCursor: interactive });
     entry.container.on('pointerover', () => this._setHover(entry, true));
     entry.container.on('pointerout', () => this._setHover(entry, false));
     entry.container.on('pointerup', () => {

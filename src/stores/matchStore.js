@@ -46,6 +46,14 @@ export const useMatchStore = defineStore('match', {
     hasMatch: (state) => Boolean(state.match)
   },
   actions: {
+    logDebug(message, context) {
+      if (import.meta.env?.VITE_DEBUG !== 'true') {
+        return;
+      }
+      const detail = context ? ` | ${JSON.stringify(context)}` : '';
+      // eslint-disable-next-line no-console
+      console.debug(`[matchStore] ${message}${detail}`);
+    },
     async loadInitialState() {
       this.loading = true;
       this.error = null;
@@ -102,6 +110,7 @@ export const useMatchStore = defineStore('match', {
       this.match.actions.logs = previousLogs;
       this._pushBatchLogs(snapshot.logs ?? [], { reset: resetLogs });
       this.cpuDelay = snapshot.meta?.cpuThinkDelay ?? this.cpuDelay;
+      this._syncSelectableMeta();
       this._refreshActions();
       this._scheduleCpuAdvance();
     },
@@ -202,11 +211,11 @@ export const useMatchStore = defineStore('match', {
 
       if (!this.selectedHandId) {
         let handOptions = [];
-        try {
-          handOptions = await this._loadSelectableHand(card.id);
-        } catch (err) {
-          this.addLog('手札候補の取得に失敗しました。', 'error');
-          return;
+      try {
+        handOptions = await this._loadSelectableHand(card.id);
+      } catch (err) {
+        this.addLog('手札候補の取得に失敗しました。', 'error');
+        return;
         }
 
         this.selectableHandIds = handOptions;
@@ -292,10 +301,11 @@ export const useMatchStore = defineStore('match', {
       }
 
       try {
-        const result = await playCards(this.selectedHandId, this.selectedFieldId ?? null);
-        await this.applyBackendState(result.state);
-        this.clearSelections();
-        return 'play-card';
+      const result = await playCards(this.selectedHandId, this.selectedFieldId ?? null);
+      await this.applyBackendState(result.state);
+      this.logDebug('playSelectedCards', { hand: this.selectedHandId, field: this.selectedFieldId });
+      this.clearSelections();
+      return 'play-card';
       } catch (err) {
         this.addLog('カードのプレイに失敗しました。', 'error');
       }
@@ -309,19 +319,21 @@ export const useMatchStore = defineStore('match', {
       const decision = decisionKey === 'continue' ? 'continue' : 'stop';
 
       try {
-        const result = await resolveKoikoiRemote(decision);
-        await this.applyBackendState(result.state);
-        this.clearSelections();
-        return decision === 'continue' ? 'koikoi-continue' : 'koikoi-stop';
+      const result = await resolveKoikoiRemote(decision);
+      await this.applyBackendState(result.state);
+      this.logDebug('resolveKoikoi', { decision });
+      this.clearSelections();
+      return decision === 'continue' ? 'koikoi-continue' : 'koikoi-stop';
       } catch (err) {
         this.addLog('コイコイの処理に失敗しました。', 'error');
       }
     },
     async startNextRound() {
       try {
-        const result = await startNextRoundRemote();
-        await this.applyBackendState(result.state, { resetLogs: false });
-        this.clearSelections();
+      const result = await startNextRoundRemote();
+      await this.applyBackendState(result.state, { resetLogs: false });
+      this.logDebug('startNextRound', {});
+      this.clearSelections();
         return 'start-next-round';
       } catch (err) {
         this.addLog('次の局を開始できませんでした。', 'error');

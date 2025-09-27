@@ -266,7 +266,9 @@ export class GameState {
       handCounts: {
         player: rawPlayerState?.hand?.length ?? playerView.hand?.length ?? 0,
         opponent: rawOpponentState?.hand?.length ?? opponentView.hand?.length ?? 0
-      }
+      },
+      selectableHandIds: [],
+      selectableFieldIds: []
     };
 
     return {
