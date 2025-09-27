@@ -93,6 +93,12 @@ export const useMatchStore = defineStore('match', {
         meta: snapshot.meta ?? {}
       };
 
+      this.match.meta = {
+        ...this.match.meta,
+        selectableHandIds: [...this.selectableHandIds],
+        selectableFieldIds: [...this.selectableFieldIds]
+      };
+
       this.match.actions.logs = previousLogs;
       this._pushBatchLogs(snapshot.logs ?? [], { reset: resetLogs });
       this.cpuDelay = snapshot.meta?.cpuThinkDelay ?? this.cpuDelay;
@@ -110,6 +116,7 @@ export const useMatchStore = defineStore('match', {
       if (this.match?.field) {
         this.match.field.selectedCardId = null;
       }
+      this._syncSelectableMeta();
       this._refreshActions();
       this._scheduleCpuAdvance();
     },
@@ -145,6 +152,7 @@ export const useMatchStore = defineStore('match', {
           this.match.field.selectedCardId = null;
         }
         this._refreshActions();
+        this._syncSelectableMeta();
         return;
       }
 
@@ -161,6 +169,7 @@ export const useMatchStore = defineStore('match', {
       }
 
       this.selectableFieldIds = selectable;
+      this._syncSelectableMeta();
 
       if (selectable.length === 0) {
         this.selectedFieldId = null;
@@ -206,6 +215,7 @@ export const useMatchStore = defineStore('match', {
         if (this.match.field) {
           this.match.field.selectedCardId = card.id;
         }
+        this._syncSelectableMeta();
 
         if (!handOptions.length) {
           this.addLog(`${card.name} に対応する手札がありません。`, 'error');
@@ -229,6 +239,7 @@ export const useMatchStore = defineStore('match', {
           this.selectableHandIds = [];
         }
         this._refreshActions();
+        this._syncSelectableMeta();
         return;
       }
 
@@ -236,6 +247,7 @@ export const useMatchStore = defineStore('match', {
       if (this.match.field) {
         this.match.field.selectedCardId = card.id;
       }
+      this._syncSelectableMeta();
       this._refreshActions();
     },
     async handleAction(action) {
@@ -461,6 +473,13 @@ export const useMatchStore = defineStore('match', {
     },
     async _loadSelectableHand(cardId) {
       return fetchSelectableHandCards(cardId);
+    },
+    _syncSelectableMeta() {
+      if (!this.match?.meta) {
+        return;
+      }
+      this.match.meta.selectableHandIds = [...this.selectableHandIds];
+      this.match.meta.selectableFieldIds = [...this.selectableFieldIds];
     }
   }
 });
