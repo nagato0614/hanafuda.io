@@ -26,6 +26,10 @@ export async function startNextRound() {
   return gameState.startNextRound();
 }
 
+export async function advanceCpuTurn() {
+  return gameState.advanceCpuTurn();
+}
+
 export function resetBackendState(options = {}) {
   gameState.reset(options);
 }

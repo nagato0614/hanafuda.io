@@ -138,6 +138,8 @@ export class GameState {
     this.matchId = options.matchId ?? 'local-match';
     this._service = new GameService(options);
     this._logQueue = [];
+    this._startPromise = null;
+    this._pendingCpu = Promise.resolve();
     this._ensureMatchStarted();
   }
 
@@ -146,28 +148,38 @@ export class GameState {
     this.matchId = options.matchId ?? 'local-match';
     this._service = new GameService(options);
     this._logQueue = [];
+    this._startPromise = null;
+    this._pendingCpu = Promise.resolve();
     this._ensureMatchStarted();
   }
 
   _ensureMatchStarted() {
-    if (!this._service.matchState || !this._service.round) {
-      const result = this._service.startMatch(this._config);
+    if (!this._startPromise) {
+      this._startPromise = this._service.startMatch(this._config).then((result) => {
       this._appendLogsFromEvents(result?.events ?? []);
-    }
+      return result;
+    });
+  }
+    return this._startPromise;
   }
 
-  _getServiceSnapshot() {
-    this._ensureMatchStarted();
+  async _waitCpu() {
+    await this._pendingCpu;
+  }
+
+  async _getServiceSnapshot() {
+    await this._waitCpu();
+    await this._ensureMatchStarted();
     return this._service.getSnapshot();
   }
 
-  _getRoundSnapshot() {
-    const snapshot = this._getServiceSnapshot();
+  async _getRoundSnapshot() {
+    const snapshot = await this._getServiceSnapshot();
     return snapshot?.round ?? null;
   }
 
-  snapshot() {
-    const base = this._collectSnapshot();
+  async snapshot() {
+    const base = await this._collectSnapshot();
     if (!base) {
       return null;
     }
@@ -177,8 +189,8 @@ export class GameState {
     };
   }
 
-  _collectSnapshot() {
-    const serviceSnapshot = this._getServiceSnapshot();
+  async _collectSnapshot() {
+    const serviceSnapshot = await this._getServiceSnapshot();
     if (!serviceSnapshot) {
       return null;
     }
@@ -203,14 +215,17 @@ export class GameState {
         field: { drawPile: 0, discard: [], cards: [] },
         match: this._buildMatchInfo(matchSnapshot),
         pendingKoikoi: null,
-        roundResult: matchSnapshot?.history?.at(-1)?.result ?? null
+      roundResult: matchSnapshot?.history?.at(-1)?.result ?? null,
+        meta: {
+          matchFinished: Boolean(matchSnapshot?.isFinished),
+          cpuThinkDelay: this._service.cpuThinkDelay
+        }
       };
     }
 
     const playersById = new Map(roundSnapshot.players.map((player) => [player.id, player]));
     const statusById = new Map((roundSnapshot.playerStatus ?? []).map((status) => [status.playerId, status]));
     const yakuById = new Map((roundSnapshot.playerYaku ?? []).map((entry) => [entry.playerId, entry.list ?? []]));
-
     const totalsById = new Map((matchSnapshot?.totals ?? []).map((entry) => [entry.playerId, entry.points]));
 
     const humanPlayer = playersById.get('player') ?? roundSnapshot.players[0];
@@ -240,9 +255,11 @@ export class GameState {
 
     const meta = {
       currentPlayerId: roundSnapshot.currentPlayerId,
-      isPlayerTurn: !roundSnapshot.pendingKoikoi && roundSnapshot.currentPlayerId === playerView.id,
+      isPlayerTurn:
+        !roundSnapshot.pendingKoikoi && roundSnapshot.currentPlayerId === playerView.id,
       matchFinished: Boolean(matchSnapshot?.isFinished),
-      pendingKoikoiPlayerId: roundSnapshot.pendingKoikoi?.playerId ?? null
+      pendingKoikoiPlayerId: roundSnapshot.pendingKoikoi?.playerId ?? null,
+      cpuThinkDelay: this._service.cpuThinkDelay
     };
 
     return {
@@ -430,8 +447,8 @@ export class GameState {
     return `${month}月`;
   }
 
-  getSelectableFieldCards(handCardId) {
-    const roundSnapshot = this._getRoundSnapshot();
+  async getSelectableFieldCards(handCardId) {
+    const roundSnapshot = await this._getRoundSnapshot();
     if (!roundSnapshot || roundSnapshot.pendingKoikoi) {
       return [];
     }
@@ -445,8 +462,8 @@ export class GameState {
       .map((card) => card.id);
   }
 
-  getSelectableHandCards(fieldCardId) {
-    const roundSnapshot = this._getRoundSnapshot();
+  async getSelectableHandCards(fieldCardId) {
+    const roundSnapshot = await this._getRoundSnapshot();
     if (!roundSnapshot || roundSnapshot.pendingKoikoi) {
       return [];
     }
@@ -463,8 +480,9 @@ export class GameState {
       .map((card) => card.id);
   }
 
-  playCards(handCardId, fieldCardId) {
-    const roundSnapshot = this._getRoundSnapshot();
+  async playCards(handCardId, fieldCardId) {
+    await this._waitCpu();
+    const roundSnapshot = await this._getRoundSnapshot();
     if (!roundSnapshot) {
       throw new Error('ラウンドが開始されていません。');
     }
@@ -493,31 +511,52 @@ export class GameState {
       throw new Error('指定したカードの組み合わせは無効です。');
     }
 
-    const result = this._service.playCard(targetMove);
+    const result = await this._service.playCard(targetMove);
     this._appendLogsFromEvents(result.events);
 
-    const state = this.snapshot();
+    const state = await this.snapshot();
     return {
       state,
       logs: state.logs
     };
   }
 
-  startNextRound() {
-    const result = this._service.startNextRound();
-    this._appendLogsFromEvents(result.events);
-    const state = this.snapshot();
-    return {
-      state,
-      logs: state.logs
-    };
-  }
-
-  resolveKoikoi(decision) {
+  async resolveKoikoi(decision) {
+    await this._waitCpu();
     const normalized = decision === 'continue' ? 'continue' : 'stop';
-    const result = this._service.resolveKoikoi(normalized);
+    const result = await this._service.resolveKoikoi(normalized);
     this._appendLogsFromEvents(result.events);
-    const state = this.snapshot();
+    const state = await this.snapshot();
+    return {
+      state,
+      logs: state.logs
+    };
+  }
+
+  async startNextRound() {
+    await this._waitCpu();
+    const result = await this._service.startNextRound();
+    this._appendLogsFromEvents(result.events);
+    const state = await this.snapshot();
+    return {
+      state,
+      logs: state.logs
+    };
+  }
+
+  async advanceCpuTurn() {
+    const cpuTask = this._pendingCpu.then(() => this._service.advanceCpuTurn());
+    this._pendingCpu = cpuTask.catch(() => {});
+
+    let result;
+    try {
+      result = await cpuTask;
+    } finally {
+      this._pendingCpu = Promise.resolve();
+    }
+
+    this._appendLogsFromEvents(result.events);
+    const state = await this.snapshot();
     return {
       state,
       logs: state.logs

@@ -5,7 +5,8 @@ import {
   fetchSelectableHandCards,
   playCards,
   resolveKoikoi as resolveKoikoiRemote,
-  startNextRound as startNextRoundRemote
+  startNextRound as startNextRoundRemote,
+  advanceCpuTurn as advanceCpuTurnRemote
 } from '../backend/gameBackend.js';
 
 const MAX_LOGS = 50;
@@ -37,7 +38,9 @@ export const useMatchStore = defineStore('match', {
     selectedFieldId: null,
     selectableHandIds: [],
     selectableFieldIds: [],
-    sceneKey: 'MainMenu'
+    sceneKey: 'MainMenu',
+    cpuDelay: 1000,
+    cpuTimer: null
   }),
   getters: {
     hasMatch: (state) => Boolean(state.match)
@@ -92,7 +95,9 @@ export const useMatchStore = defineStore('match', {
 
       this.match.actions.logs = previousLogs;
       this._pushBatchLogs(snapshot.logs ?? [], { reset: resetLogs });
+      this.cpuDelay = snapshot.meta?.cpuThinkDelay ?? this.cpuDelay;
       this._refreshActions();
+      this._scheduleCpuAdvance();
     },
     clearSelections() {
       this.selectedHandId = null;
@@ -106,6 +111,7 @@ export const useMatchStore = defineStore('match', {
         this.match.field.selectedCardId = null;
       }
       this._refreshActions();
+      this._scheduleCpuAdvance();
     },
     async selectHandCard(card) {
       if (!this.match || !card) {
@@ -275,7 +281,7 @@ export const useMatchStore = defineStore('match', {
 
       try {
         const result = await playCards(this.selectedHandId, this.selectedFieldId ?? null);
-        this.applyBackendState(result.state);
+        await this.applyBackendState(result.state);
         this.clearSelections();
         return 'play-card';
       } catch (err) {
@@ -292,7 +298,7 @@ export const useMatchStore = defineStore('match', {
 
       try {
         const result = await resolveKoikoiRemote(decision);
-        this.applyBackendState(result.state);
+        await this.applyBackendState(result.state);
         this.clearSelections();
         return decision === 'continue' ? 'koikoi-continue' : 'koikoi-stop';
       } catch (err) {
@@ -302,7 +308,7 @@ export const useMatchStore = defineStore('match', {
     async startNextRound() {
       try {
         const result = await startNextRoundRemote();
-        this.applyBackendState(result.state, { resetLogs: false });
+        await this.applyBackendState(result.state, { resetLogs: false });
         this.clearSelections();
         return 'start-next-round';
       } catch (err) {
@@ -378,6 +384,43 @@ export const useMatchStore = defineStore('match', {
 
       this.match.actions.primary = primary;
       this.match.actions.secondary = secondary;
+    },
+    _scheduleCpuAdvance() {
+      if (!this.match) {
+        this._clearCpuTimer();
+        return;
+      }
+
+      const meta = this.match.meta ?? {};
+      const shouldWait = !meta.matchFinished && !this.pendingKoikoi && !meta.isPlayerTurn;
+
+      if (this.sceneKey !== 'Game' || !shouldWait) {
+        this._clearCpuTimer();
+        return;
+      }
+
+      if (this.cpuTimer) {
+        return;
+      }
+
+      const delay = Math.max(0, this.cpuDelay ?? 1000);
+      this.cpuTimer = setTimeout(async () => {
+        this.cpuTimer = null;
+        try {
+          const result = await advanceCpuTurnRemote();
+          await this.applyBackendState(result.state);
+          this._pushBatchLogs(result.logs ?? []);
+          this._scheduleCpuAdvance();
+        } catch (err) {
+          this.addLog('CPU の処理に失敗しました。', 'error');
+        }
+      }, delay);
+    },
+    _clearCpuTimer() {
+      if (this.cpuTimer) {
+        clearTimeout(this.cpuTimer);
+        this.cpuTimer = null;
+      }
     },
     _canPlayCard() {
       if (!this.match || !this.match.player) {

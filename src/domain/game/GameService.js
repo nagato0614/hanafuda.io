@@ -1,6 +1,7 @@
 import { RoundState } from './RoundState.js';
 
 const DEFAULT_TOTAL_ROUNDS = 12;
+const DEFAULT_CPU_THINK_DELAY = 1000;
 
 function normalizeSeed(value, offset = 0) {
   if (value === undefined || value === null) {
@@ -14,7 +15,7 @@ function normalizeSeed(value, offset = 0) {
 }
 
 export class GameService {
-  constructor({ seed, players, totalRounds, humanPlayerId } = {}) {
+  constructor({ seed, players, totalRounds, humanPlayerId, cpuThinkDelay } = {}) {
     this.seed = seed;
     this.players = players ?? [
       { id: 'player', name: 'プレイヤー' },
@@ -22,6 +23,8 @@ export class GameService {
     ];
     this.totalRounds = totalRounds ?? DEFAULT_TOTAL_ROUNDS;
     this.humanPlayerId = humanPlayerId ?? 'player';
+    const initialDelay = Number.isFinite(cpuThinkDelay) ? cpuThinkDelay : DEFAULT_CPU_THINK_DELAY;
+    this.cpuThinkDelay = Math.max(0, initialDelay);
 
     this.round = null;
     this._lastRoundSnapshot = null;
@@ -29,11 +32,13 @@ export class GameService {
     this._roundSeedOffset = 0;
   }
 
-  startMatch(config = {}) {
+  async startMatch(config = {}) {
     this.seed = config.seed ?? this.seed;
     this.players = config.players ?? this.players;
     this.totalRounds = config.totalRounds ?? this.totalRounds ?? DEFAULT_TOTAL_ROUNDS;
     this.humanPlayerId = config.humanPlayerId ?? this.humanPlayerId ?? (this.players[0]?.id ?? 'player');
+    const delay = Number.isFinite(config.cpuThinkDelay) ? config.cpuThinkDelay : this.cpuThinkDelay;
+    this.cpuThinkDelay = Math.max(0, delay);
 
     this.matchState = {
       totalRounds: this.totalRounds,
@@ -47,7 +52,7 @@ export class GameService {
     this._roundSeedOffset = 0;
     this._lastRoundSnapshot = null;
 
-    const events = this._startRound({ firstPlayerId: this.matchState.currentFirstPlayerId });
+    const events = await this._startRound({ firstPlayerId: this.matchState.currentFirstPlayerId });
     return {
       snapshot: this.getSnapshot(),
       events
@@ -79,7 +84,7 @@ export class GameService {
     return this.round.availableMoves(playerId);
   }
 
-  playCard(move) {
+  async playCard(move) {
     if (!this.round) {
       throw new Error('Round has not started.');
     }
@@ -106,9 +111,7 @@ export class GameService {
     }
 
     if (result.roundEnded) {
-      this._handleRoundCompletion(events);
-    } else {
-      this._autoPlayIfNeeded(events);
+      await this._handleRoundCompletion(events);
     }
 
     return {
@@ -117,7 +120,7 @@ export class GameService {
     };
   }
 
-  resolveKoikoi(decision, playerId = this.humanPlayerId) {
+  async resolveKoikoi(decision, playerId = this.humanPlayerId) {
     if (!this.round) {
       throw new Error('Round has not started.');
     }
@@ -137,9 +140,7 @@ export class GameService {
     });
 
     if (outcome.result) {
-      this._handleRoundCompletion(events);
-    } else {
-      this._autoPlayIfNeeded(events);
+      await this._handleRoundCompletion(events);
     }
 
     return {
@@ -148,7 +149,7 @@ export class GameService {
     };
   }
 
-  startNextRound() {
+  async startNextRound() {
     if (!this.matchState) {
       throw new Error('Match has not started.');
     }
@@ -162,7 +163,16 @@ export class GameService {
       };
     }
 
-    const events = this._startRound({ firstPlayerId: this.matchState.nextFirstPlayerId });
+    const events = await this._startRound({ firstPlayerId: this.matchState.nextFirstPlayerId });
+    return {
+      events,
+      snapshot: this.getSnapshot()
+    };
+  }
+
+  async advanceCpuTurn() {
+    const events = [];
+    await this._advanceCpuLoop(events);
     return {
       events,
       snapshot: this.getSnapshot()
@@ -215,7 +225,7 @@ export class GameService {
     };
   }
 
-  _startRound({ firstPlayerId } = {}) {
+  async _startRound({ firstPlayerId } = {}) {
     const events = [];
     const order = this._reorderPlayers(firstPlayerId);
     const seed = normalizeSeed(this.seed, this._roundSeedOffset);
@@ -233,8 +243,6 @@ export class GameService {
     });
 
     this._roundSeedOffset += 1;
-
-    this._autoPlayIfNeeded(events);
     return events;
   }
 
@@ -251,8 +259,14 @@ export class GameService {
     return [...before, ...after].map((player) => ({ ...player }));
   }
 
-  _autoPlayIfNeeded(events = []) {
+  async _advanceCpuLoop(events = []) {
+    let guard = 0;
     while (this.round) {
+      if (guard > 200) {
+        throw new Error('CPU guard exceeded');
+      }
+      guard += 1;
+
       const pending = this.round.pendingKoikoi;
       if (pending) {
         if (pending.playerId === this.humanPlayerId) {
@@ -268,20 +282,20 @@ export class GameService {
           level: outcome.level
         });
         if (outcome.result) {
-          this._handleRoundCompletion(events);
+          await this._handleRoundCompletion(events);
           continue;
         }
         continue;
       }
 
       if (this.round.roundResult) {
-        this._handleRoundCompletion(events);
+        await this._handleRoundCompletion(events);
         continue;
       }
 
       const currentPlayerId = this.round.currentPlayerId;
       if (!currentPlayerId) {
-        this._handleRoundCompletion(events);
+        await this._handleRoundCompletion(events);
         continue;
       }
 
@@ -291,7 +305,7 @@ export class GameService {
 
       const moves = this.round.availableMoves(currentPlayerId);
       if (!moves || moves.length === 0) {
-        this._handleRoundCompletion(events);
+        await this._handleRoundCompletion(events);
         continue;
       }
 
@@ -311,10 +325,11 @@ export class GameService {
           playerId: currentPlayerId,
           pending: result.pendingKoikoi
         });
+        continue;
       }
 
       if (result.roundEnded) {
-        this._handleRoundCompletion(events);
+        await this._handleRoundCompletion(events);
         continue;
       }
     }
@@ -334,7 +349,7 @@ export class GameService {
     return 'continue';
   }
 
-  _handleRoundCompletion(events) {
+  async _handleRoundCompletion(events) {
     if (!this.round || !this.round.roundResult) {
       return;
     }
@@ -376,7 +391,7 @@ export class GameService {
       return;
     }
 
-    const nextEvents = this._startRound({ firstPlayerId: this.matchState.nextFirstPlayerId });
+    const nextEvents = await this._startRound({ firstPlayerId: this.matchState.nextFirstPlayerId });
     events.push(...nextEvents);
   }
 }

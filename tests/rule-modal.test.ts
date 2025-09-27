@@ -85,7 +85,7 @@ describe('ルール表示モーダル', () => {
       }
     });
 
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     await nextTick();
 
     const startButton = wrapper

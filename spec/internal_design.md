@@ -58,11 +58,12 @@
 ## 9. CPU 仕様概要
 - 対戦相手: 「CPU 花子」。手番ロジックはヒューリスティックで最初に獲得できる手を優先。
 - Koikoi 判定: 役成立時、基礎点が 7 点以上なら上がり、それ未満はコイコイ継続。(暫定ロジック)
-- CPU 手番と Koikoi 決定は `GameService._autoPlayIfNeeded()` 内で実行。
+- CPU 手番は `GameService.advanceCpuTurn()` で進行し、`DEFAULT_CPU_THINK_DELAY`（1,000ms）だけ待機したあとにまとめて処理する。
+- `useMatchStore` は human アクション後に `cpuDelay`（スナップショットの `meta.cpuThinkDelay`）を参照し、タイマー経由で `advanceCpuTurn` を呼び出して「考える時間」を再現する。
+- Koikoi 判定は `advanceCpuTurn()` 内のループで自動的に解決され、決着後は即座にラウンド集計・次局開始が行われる。
 
 ## 10. サウンドアセット
 - `src/assets/sound/agari.mp3` : 上がり宣言演出。
 - `src/assets/sound/click_fuda.mp3` : 手札・場札クリック時のフィードバック。
 - `src/assets/sound/fuda_select.mp3` : 札を選択状態へ切り替える際のハイライト音。
 - `src/assets/sound/start_button.mp3` : タイトル画面等で対局開始ボタンを押したときの効果音。
-
