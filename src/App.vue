@@ -40,11 +40,6 @@ const handleAction = async (action) => {
   }
 };
 
-const handleStartGame = () => {
-  if (activeScene.value && typeof activeScene.value.changeScene === 'function') {
-    activeScene.value.changeScene();
-  }
-};
 </script>
 
 <template>
@@ -58,7 +53,6 @@ const handleStartGame = () => {
     @select-card="handleSelectCard"
     @select-field-card="handleSelectFieldCard"
     @action="handleAction"
-    @start-game="handleStartGame"
   />
 
   <RuleModal v-if="isRuleModalOpen" @close="uiState.hideRuleModal()" />

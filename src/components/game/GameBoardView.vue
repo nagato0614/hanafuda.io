@@ -1,12 +1,6 @@
 <script setup>
 import { computed } from 'vue';
-import ActionPanel from './ActionPanel.vue';
-import CapturedArea from './CapturedArea.vue';
-import FieldArea from './FieldArea.vue';
-import HandArea from './HandArea.vue';
-import StatusBar from './StatusBar.vue';
 import PhaserGame from '../../PhaserGame.vue';
-import MainMenuOverlay from '../menu/MainMenuOverlay.vue';
 
 const props = defineProps({
   state: {
@@ -27,28 +21,30 @@ const props = defineProps({
   }
 });
 
-const emits = defineEmits(['scene-ready', 'select-card', 'select-field-card', 'action', 'start-game']);
+const emits = defineEmits(['scene-ready', 'select-card', 'select-field-card', 'action']);
 
 const handleSceneReady = (scene) => {
-  // Phaser 側のシーン情報を親へ伝播し、Vue レイヤで状態を同期する
   emits('scene-ready', scene);
 };
 
-const handleSelectCard = (card) => {
-  emits('select-card', card);
+const handlePhaserHandSelect = (card) => {
+  if (!card) {
+    return;
+  }
+  const matchCard = props.state.player?.hand?.find((item) => item.id === card.id) ?? card;
+  emits('select-card', matchCard);
 };
 
-const handleSelectFieldCard = (card) => {
-  // 場札選択も親に委譲して、組み合わせ判定を一元管理する
-  emits('select-field-card', card);
+const handlePhaserFieldSelect = (card) => {
+  if (!card) {
+    return;
+  }
+  const matchCard = props.state.field?.cards?.find((item) => item.id === card.id) ?? card;
+  emits('select-field-card', matchCard);
 };
 
-const handleAction = (action) => {
+const handlePhaserAction = (action) => {
   emits('action', action);
-};
-
-const handleStartGame = () => {
-  emits('start-game');
 };
 
 const isGameScene = computed(() => props.sceneKey === 'Game');
@@ -57,59 +53,16 @@ const isGameScene = computed(() => props.sceneKey === 'Game');
 <template>
   <div class="game-board container-fluid py-4">
     <div class="game-stage mx-auto">
-      <PhaserGame class="phaser-layer" @current-active-scene="handleSceneReady" />
+      <PhaserGame
+        class="phaser-layer"
+        :state="state"
+        @current-active-scene="handleSceneReady"
+        @hand-card-selected="handlePhaserHandSelect"
+        @field-card-selected="handlePhaserFieldSelect"
+        @action-selected="handlePhaserAction"
+      />
       <div class="ui-layer p-3">
-        <template v-if="isGameScene">
-          <div class="game-ui d-flex flex-column gap-3 h-100">
-            <StatusBar
-              :status="state.status"
-              :players="[state.opponent, state.player]"
-              :field="state.field"
-            />
-
-            <div class="board-center flex-grow-1">
-              <CapturedArea
-                class="captured-column"
-                :owner="state.player.name"
-                :categories="state.player.captured"
-              />
-
-              <FieldArea
-                :field="state.field"
-                class="board-field flex-grow-1"
-                :selected-card-id="state.field.selectedCardId"
-                :selectable-card-ids="selectableFieldIds"
-                @select-card="handleSelectFieldCard"
-              />
-
-              <CapturedArea
-                class="captured-column"
-                :owner="state.opponent.name"
-                :categories="state.opponent.captured"
-              />
-            </div>
-
-            <div class="bottom-stack">
-              <HandArea
-                class="hand-panel"
-                :cards="state.player.hand"
-                :title="`${state.player.name} の手札`"
-                :selected-card-id="state.player.selectedCardId"
-                :selectable-card-ids="selectableHandIds"
-                @select-card="handleSelectCard"
-              />
-
-              <ActionPanel
-                class="action-panel"
-                :actions="state.actions"
-                @action="handleAction"
-              />
-            </div>
-          </div>
-        </template>
-        <template v-else-if="sceneKey === 'MainMenu'">
-          <MainMenuOverlay @start="handleStartGame" />
-        </template>
+        <div v-if="isGameScene" class="game-ui d-flex flex-column gap-3 h-100 justify-content-end" />
       </div>
     </div>
   </div>
@@ -140,33 +93,6 @@ const isGameScene = computed(() => props.sceneKey === 'Game');
 
 .game-ui {
   height: 100%;
-}
-
-.board-center {
-  display: grid;
-  grid-template-columns: 280px 1fr 280px;
-  gap: 1.5rem;
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
-.captured-column {
-  height: 100%;
-}
-
-.board-field {
-  min-height: 0;
-}
-
-.bottom-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  flex: 0 0 auto;
-}
-
-.hand-panel {
-  flex: 0 0 auto;
 }
 
 .action-panel {

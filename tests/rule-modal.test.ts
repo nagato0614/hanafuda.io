@@ -2,6 +2,9 @@ import { mount } from '@vue/test-utils';
 import { describe, it, expect, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { defineComponent, h, nextTick } from 'vue';
+import { useMatchStore } from '../src/stores/matchStore';
+import { useUiStateStore } from '../src/stores/uiState';
+import GameBoardView from '../src/components/game/GameBoardView.vue';
 
 vi.mock('phaser', () => {
   class MockEventEmitter {
@@ -61,10 +64,10 @@ describe('ルール表示モーダル', () => {
   it('対局開始後にルールボタンでモーダルが開く', async () => {
     setActivePinia(createPinia());
 
-    const wrapper = mount(App, {
-      global: {
-        stubs: {
-          PhaserGame: PhaserStub,
+  const wrapper = mount(App, {
+    global: {
+      stubs: {
+        PhaserGame: PhaserStub,
           CapturedArea: CapturedStub,
           FieldArea: FieldStub,
           HandArea: defineComponent({
@@ -82,25 +85,19 @@ describe('ルール表示モーダル', () => {
             }
           })
         }
-      }
-    });
+    }
+  });
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     await nextTick();
 
-    const startButton = wrapper
-      .findAll('button')
-      .find((btn) => btn.text() === '対局を開始する');
-    expect(startButton).toBeTruthy();
-    await startButton!.trigger('click');
+    const matchStore = useMatchStore();
+    matchStore.setScene({ scene: { key: 'Game' } });
 
     await nextTick();
 
-    const ruleButton = wrapper
-      .findAll('button')
-      .find((btn) => btn.text() === 'ルールを見る');
-    expect(ruleButton).toBeTruthy();
-    await ruleButton!.trigger('click');
+    const uiStateStore = useUiStateStore();
+    uiStateStore.showRuleModal();
 
     await nextTick();
 

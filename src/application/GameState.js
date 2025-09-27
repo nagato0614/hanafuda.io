@@ -253,13 +253,20 @@ export class GameState {
       matchSnapshot
     });
 
+    const rawPlayerState = playersById.get(playerView.id);
+    const rawOpponentState = playersById.get(opponentView.id);
+
     const meta = {
       currentPlayerId: roundSnapshot.currentPlayerId,
       isPlayerTurn:
         !roundSnapshot.pendingKoikoi && roundSnapshot.currentPlayerId === playerView.id,
       matchFinished: Boolean(matchSnapshot?.isFinished),
       pendingKoikoiPlayerId: roundSnapshot.pendingKoikoi?.playerId ?? null,
-      cpuThinkDelay: this._service.cpuThinkDelay
+      cpuThinkDelay: this._service.cpuThinkDelay,
+      handCounts: {
+        player: rawPlayerState?.hand?.length ?? playerView.hand?.length ?? 0,
+        opponent: rawOpponentState?.hand?.length ?? opponentView.hand?.length ?? 0
+      }
     };
 
     return {

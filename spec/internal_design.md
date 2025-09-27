@@ -6,9 +6,10 @@
 - 目的: シングルプレイヤーで CPU と対戦する花札「こいこい」の Web クライアントを提供する。
 
 ## 2. レイヤ構成
-- **プレゼンテーション層**: Vue コンポーネント群 (`src/components/**`) が UI を描画。Phaser コンポーネントは背景のみ担当。
+- **プレゼンテーション層**: Vue コンポーネント群 (`src/components/**`) は操作ボタンなど最小限の UI を描画し、メインのビジュアル（カード、盤面、ログ、点数表示）は Phaser レイヤが担当する。
 - **アプリケーション層**: `GameState` がドメイン層を包み込み、UI 用スナップショット・ログメッセージ・API 風インターフェースを提供。
 - **ドメイン層**: `RoundState`, `GameService`, `Field`, `PlayerState`, `Deck`, `YakuEvaluator`, `ScoreCalculator` など純粋ロジック。外部依存なし。
+- **Phaser 表現層**: `CardSpriteManager` がスナップショットからカードスプライトを生成・配置し、`HudManager` が点数・ターン・ログ表示を担当。双方向イベントは EventBus 経由で Vue と連携する。
 - **バックエンドモック**: `src/backend/gameBackend.js` が Pinia からの呼び出しを `GameState` に橋渡しする擬似 API。
 - **状態管理**: Pinia の `useMatchStore` がスナップショットと UI 状態 (選択中の札・ログ等) を保持。
 
@@ -18,7 +19,7 @@
 - `src/application/GameState.js`: UI から利用するファサード。スナップショット生成とログ整形を担当。
 - `src/backend/gameBackend.js`: Pinia ストアから呼ばれる非同期ラッパー。
 - `src/stores/matchStore.js`: Pinia ストア本体。選択状態・アクション表示・ログ管理。
-- `src/components/**`: Vue コンポーネント (GameBoardView, ActionPanel, StatusBar など)。
+- `src/components/**`: Vue コンポーネント (GameBoardView, ActionPanel など)。
 - `tests/**`: Vitest によるユニット/統合テスト。
 
 ## 4. ドメインモデル

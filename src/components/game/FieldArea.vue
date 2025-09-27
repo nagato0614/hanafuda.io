@@ -1,6 +1,5 @@
 <script setup>
 import { computed } from 'vue';
-import CardToken from './CardToken.vue';
 
 const props = defineProps({
   field: {
@@ -56,7 +55,6 @@ const handleSelect = (item) => {
     return;
   }
 
-  // 選択した場札を上位へ通知（手札との組み合わせ判定は App 側）
   emit('select-card', item);
 };
 </script>
@@ -87,12 +85,7 @@ const handleSelect = (item) => {
           :disabled="!isSelectable(item.id)"
           @click="handleSelect(item)"
         >
-          <CardToken
-            :card="item"
-            size="md"
-            :selectable="isSelectable(item.id)"
-            :selected="item.id === selectedCardId"
-          />
+          <span class="field-card-label">{{ item.shortLabel ?? item.name ?? item.id }}</span>
         </button>
         <div v-else class="field-empty">&nbsp;</div>
       </div>
@@ -105,7 +98,6 @@ const handleSelect = (item) => {
   backdrop-filter: blur(6px);
   background-color: rgba(255, 255, 255, 0.95);
 }
-
 
 .field-grid {
   display: grid;
@@ -141,7 +133,7 @@ const handleSelect = (item) => {
 
 .field-card-btn.selected {
   outline: 3px solid #0d6efd;
-  border-radius: 1rem;
+  border-radius: 0.85rem;
 }
 
 .field-card-btn:disabled {
@@ -151,7 +143,13 @@ const handleSelect = (item) => {
 
 .field-card-btn:focus-visible {
   outline: 3px solid #0d6efd;
-  border-radius: 1rem;
+  border-radius: 0.85rem;
+}
+
+.field-card-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1f2937;
 }
 
 .field-empty {
