@@ -445,25 +445,7 @@ export const useMatchStore = defineStore('match', {
         return '手札を出す';
       }
 
-      const handCard = this._getHandCardById(this.selectedHandId);
-      if (!handCard) {
-        return '手札を出す';
-      }
-
-      if (this.selectableFieldIds.length === 0) {
-        return `${handCard.name} を場に出す`;
-      }
-
-      if (!this.selectedFieldId) {
-        return `${handCard.name} を出す`;
-      }
-
-      const fieldCard = this._getFieldCardById(this.selectedFieldId);
-      if (!fieldCard) {
-        return `${handCard.name} を出す`;
-      }
-
-      return `${handCard.name} と ${fieldCard.name} を出す`;
+      return '手札を出す';
     },
     _getHandCardById(cardId) {
       return this.match?.player?.hand?.find((card) => card.id === cardId) ?? null;
